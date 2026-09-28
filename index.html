@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mining Safety Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+
+  <!-- Blurred mine-tunnel background -->
+  <div class="page-bg" aria-hidden="true">
+    <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <radialGradient id="bgGlow" cx="50%" cy="45%" r="55%">
+          <stop offset="0" stop-color="#5a3d1c"/><stop offset=".35" stop-color="#2a1d10"/><stop offset="1" stop-color="#05070b"/>
+        </radialGradient>
+        <radialGradient id="bgLamp"><stop offset="0" stop-color="#ffc766" stop-opacity=".9"/><stop offset="1" stop-color="#ffc766" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect width="1600" height="1000" fill="url(#bgGlow)"/>
+      <g fill="none" stroke="#6e5232" opacity=".7">
+        <path d="M100 1000V420a700 380 0 0 1 1400 0v580" stroke-width="40"/>
+        <path d="M380 1000V470a420 240 0 0 1 840 0v530" stroke-width="26"/>
+        <path d="M580 1000V500a220 140 0 0 1 440 0v500" stroke-width="16"/>
+        <path d="M700 1000V520a100 70 0 0 1 200 0v480" stroke-width="10"/>
+      </g>
+      <g stroke="#9aa0a8" stroke-width="8" opacity=".6"><path d="M300 1000 760 560M1300 1000 840 560"/></g>
+      <circle cx="300" cy="360" r="160" fill="url(#bgLamp)"/><circle cx="1300" cy="360" r="160" fill="url(#bgLamp)"/>
+      <circle cx="800" cy="470" r="90" fill="url(#bgLamp)"/>
+    </svg>
+  </div>
+
+  <div class="app">
+
+    <!-- ================= HEADER ================= -->
+    <header class="topbar glass">
+      <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><i data-lucide="menu"></i></button>
+      <div class="brand">
+        <div class="brand-icon"><i data-lucide="hard-hat"></i></div>
+        <div>
+          <h1>Mining Safety Monitor</h1>
+          <p>Safer Miners. Stronger Tomorrow.</p>
+        </div>
+      </div>
+
+      <div class="head-info">
+        <div class="head-item">
+          <i data-lucide="user-round" class="muted-ic"></i>
+          <div><span class="lbl">Worker ID</span><strong>W01</strong></div>
+        </div>
+        <span class="pill-status online" id="statusPill"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+        <div class="head-item">
+          <i data-lucide="clock" class="muted-ic"></i>
+          <div><span class="lbl">Last updated</span><strong><span id="lastUpdated">--:--:--</span> <span class="ago" id="agoText"></span></strong></div>
+        </div>
+      </div>
+
+      <div class="head-actions">
+        <span class="hicon ok" id="wifiIcon" title="Blynk connection"><i data-lucide="wifi"></i></span>
+        <span class="blynk"><i data-lucide="cloud"></i> Blynk IoT</span>
+        <a class="hicon" href="#device" title="Device &amp; connection settings"><i data-lucide="settings"></i></a>
+        <span class="hicon" title="Supervisor"><i data-lucide="circle-user-round"></i></span>
+      </div>
+    </header>
+
+    <div class="shell">
+
+    <!-- ================= SIDEBAR ================= -->
+    <aside class="sidebar glass" id="sidebar" aria-label="Main navigation">
+      <p class="nav-label">Monitor</p>
+      <nav class="nav">
+        <a href="#overview" data-nav="overview"><i data-lucide="layout-dashboard"></i><span>Overview</span><b class="nav-dot" id="navAlertDot" hidden></b></a>
+        <a href="#vitals" data-nav="vitals"><i data-lucide="heart-pulse"></i><span>Vital Signs</span></a>
+        <a href="#location" data-nav="location"><i data-lucide="map-pin"></i><span>Location</span></a>
+        <a href="#charts" data-nav="charts"><i data-lucide="chart-line"></i><span>Live Charts</span></a>
+        <a href="#alerts" data-nav="alerts"><i data-lucide="bell-ring"></i><span>Alert History</span><b class="nav-badge" id="navBadge" hidden>0</b></a>
+      </nav>
+      <p class="nav-label">System</p>
+      <nav class="nav">
+        <a href="#device" data-nav="device"><i data-lucide="radio-tower"></i><span>Device &amp; Connection</span></a>
+      </nav>
+      <div class="side-worker" id="sideWorker">
+        <span class="sw-ic"><i data-lucide="hard-hat"></i></span>
+        <div><strong>Worker W01</strong><span id="sideZone">Zone --</span></div>
+        <span class="sw-dot" title="Connection"></span>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <main class="main">
+
+    <div class="setup-note" id="setupNote" hidden>
+      <strong>Demo mode:</strong> showing made-up data. Open <code>app.js</code>, paste your Blynk Auth Token into
+      <code>BLYNK_TOKEN</code> on line 8, save, and refresh this page.
+    </div>
+
+    <!-- ================= ALERT BANNERS ================= -->
+    <section class="banners">
+      <a class="banner sos" id="sosBanner" href="#overview" data-jump="statusCard">
+        <span class="banner-ic"><i data-lucide="siren"></i></span>
+        <div class="banner-txt"><strong id="sosTitle">No SOS</strong><span id="sosSub">All clear</span></div>
+        <span class="stripes"></span>
+        <i data-lucide="chevron-right" class="chev"></i>
+      </a>
+      <a class="banner fall" id="fallBanner" href="#overview" data-jump="statusCard">
+        <span class="banner-ic">
+          <svg viewBox="0 0 24 24" class="fall-ic"><circle cx="17" cy="4.5" r="2.2"/><path d="M15.5 8 10 10.5l-3.5-2M12.5 9.3 11 15l4 3.5 1 4.5M11 15l-5 2.5L3.5 21"/></svg>
+        </span>
+        <div class="banner-txt"><strong id="fallTitle">No fall detected</strong><span id="fallSub">All clear</span></div>
+        <span class="stripes"></span>
+        <i data-lucide="chevron-right" class="chev"></i>
+      </a>
+    </section>
+
+    <!-- ================================================================
+         PAGE: OVERVIEW
+         ================================================================ -->
+    <div class="page" data-page="overview">
+
+    <!-- ================= ROW 2: gauges + location ================= -->
+    <section class="grid">
+      <div class="span-8 gauges">
+        <article class="glass gauge c-green" id="card-hr">
+          <header><i data-lucide="heart-pulse"></i><span>Heart Rate (bpm)</span></header>
+          <div class="dial">
+            <svg viewBox="0 0 100 100"><circle class="arc-track" cx="50" cy="50" r="40"/><circle class="arc-fill" cx="50" cy="50" r="40"/></svg>
+            <div class="dial-num"><span id="hrVal">--</span><small>(0 – 200)</small></div>
+          </div>
+          <footer><span class="state-pill" id="hrPill">Waiting</span><span class="range">60 – 100</span></footer>
+        </article>
+
+        <article class="glass gauge c-green" id="card-spo2">
+          <header><i data-lucide="wind"></i><span>SpO₂ (%)</span></header>
+          <div class="dial">
+            <svg viewBox="0 0 100 100"><circle class="arc-track" cx="50" cy="50" r="40"/><circle class="arc-fill" cx="50" cy="50" r="40"/></svg>
+            <div class="dial-num"><span id="spo2Val">--</span><small>(0 – 100)</small></div>
+          </div>
+          <footer><span class="state-pill" id="spo2Pill">Waiting</span><span class="range">≥ 95</span></footer>
+        </article>
+
+        <article class="glass gauge c-amber" id="card-temp">
+          <header><i data-lucide="thermometer"></i><span>Temperature (°C)</span></header>
+          <div class="dial">
+            <svg viewBox="0 0 100 100"><circle class="arc-track" cx="50" cy="50" r="40"/><circle class="arc-fill" cx="50" cy="50" r="40"/></svg>
+            <div class="dial-num"><span id="tempVal">--</span><small>(0 – 60)</small></div>
+          </div>
+          <footer><span class="state-pill" id="tempPill">Waiting</span><span class="range">(&lt; 38)</span></footer>
+        </article>
+
+        <article class="glass gauge c-blue" id="card-hum">
+          <header><i data-lucide="droplet"></i><span>Humidity (%)</span></header>
+          <div class="dial">
+            <svg viewBox="0 0 100 100"><circle class="arc-track" cx="50" cy="50" r="40"/><circle class="arc-fill" cx="50" cy="50" r="40"/></svg>
+            <div class="dial-num"><span id="humVal">--</span><small>(0 – 100)</small></div>
+          </div>
+          <footer><span class="state-pill" id="humPill">Waiting</span><span class="range">30 – 70</span></footer>
+        </article>
+      </div>
+
+      <article class="span-4 glass card location simple-loc">
+        <header class="card-head">
+          <div class="title"><i data-lucide="map-pin" class="ic-amber"></i><h2>Location</h2></div>
+          <a class="link" href="#location">Details <i data-lucide="arrow-right"></i></a>
+        </header>
+        <div class="loc-now">
+          <strong id="ovZone">--</strong>
+          <span id="ovZoneDesc">Waiting for zone…</span>
+        </div>
+        <div class="zone-bar" aria-label="Tunnel zones, base on the left">
+          <span class="zb-base" title="Base station"><i data-lucide="radio-tower"></i></span>
+          <div class="zb" data-zone="A">A</div>
+          <div class="zb" data-zone="B">B</div>
+          <div class="zb" data-zone="C">C</div>
+        </div>
+        <div class="signal-row">
+          <span class="sig-label"><i data-lucide="signal"></i> LoRa signal</span>
+          <span class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="loraValLoc">-- dBm</span></span>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= ROW 3: chart + status ================= -->
+    <section class="grid">
+      <article class="span-8 glass card">
+        <header class="card-head">
+          <div class="title"><i data-lucide="heart-pulse" class="ic-purple"></i>
+            <h2>Heart Rate &amp; Temperature <span class="muted" id="chartRangeText">(Last 15 minutes)</span></h2>
+          </div>
+          <div class="seg" role="group" aria-label="Chart range">
+            <button class="active" data-range="15">15 min</button>
+            <button data-range="60">1 hour</button>
+          </div>
+        </header>
+        <div class="legend">
+          <span><i class="lg green"></i>Heart Rate (bpm)</span>
+          <span><i class="lg amber"></i>Temperature (°C)</span>
+        </div>
+        <div class="chart-wrap"><canvas id="vitalsChart"></canvas></div>
+      </article>
+
+      <article class="span-4 glass card" id="statusCard">
+        <header class="card-head"><div class="title"><i data-lucide="activity" class="ic-green"></i><h2>Status Indicators</h2></div></header>
+        <div class="tiles">
+          <div class="tile t-red" id="tileSos">
+            <span class="tile-dot"></span>
+            <span class="tile-name">SOS</span>
+            <span class="onoff" id="sosPill">OFF</span>
+          </div>
+          <div class="tile t-amber" id="tileFall">
+            <svg viewBox="0 0 24 24" class="fall-ic"><circle cx="17" cy="4.5" r="2.2"/><path d="M15.5 8 10 10.5l-3.5-2M12.5 9.3 11 15l4 3.5 1 4.5M11 15l-5 2.5L3.5 21"/></svg>
+            <span class="tile-name">Fall</span>
+            <span class="onoff" id="fallPill">OFF</span>
+          </div>
+        </div>
+        <button class="help-btn js-help" id="helpBtn">
+          <i data-lucide="ambulance"></i><span>Help Dispatched</span><i data-lucide="chevron-right" class="chev"></i>
+        </button>
+      </article>
+    </section>
+
+    <!-- ================= ROW 4: history + tunnel view + quick info ================= -->
+    <section class="grid row-2col">
+      <article class="span-4 glass card">
+        <header class="card-head">
+          <div class="title"><i data-lucide="history" class="ic-blue"></i><h2>Alert History</h2></div>
+          <a class="link" href="#alerts">View all <i data-lucide="arrow-right"></i></a>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Type</th><th>Zone</th><th>Resolved</th></tr></thead>
+            <tbody id="historyBody"><tr class="empty"><td colspan="4">No alerts yet</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="span-4 glass card">
+        <header class="card-head"><div class="title"><i data-lucide="settings" class="ic-blue"></i><h2>Quick Info</h2></div></header>
+        <ul class="quick">
+          <li><i data-lucide="user-round"></i><span>Worker ID</span><strong>W01</strong></li>
+          <li><i data-lucide="map-pin"></i><span>Current Zone</span><strong id="qiZone">--</strong></li>
+          <li><i data-lucide="clock"></i><span>Last Updated</span><strong id="qiUpdated">--</strong></li>
+          <li><i data-lucide="signal"></i><span>Signal Strength</span><strong class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="qiSignal">--</span></strong></li>
+          <li><i data-lucide="message-square"></i><span>Device Message</span><strong id="qiStatus">--</strong></li>
+        </ul>
+      </article>
+    </section>
+
+    </div><!-- /overview -->
+
+    <!-- ================================================================
+         PAGE: VITAL SIGNS
+         ================================================================ -->
+    <div class="page" data-page="vitals" hidden>
+      <div class="page-head">
+        <div><h2>Vital Signs</h2><p>Live readings from W01's wrist unit, refreshed every 2 seconds. Green = normal · Amber = check · Red = danger.</p></div>
+      </div>
+      <!-- cards are built by app.js (VITALS list) -->
+      <section class="vitals-grid" id="vitalsGrid"></section>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="list-checks" class="ic-blue"></i><h2>Colour thresholds</h2></div></header>
+        <div class="table-wrap">
+          <table class="thresh">
+            <thead><tr><th>Reading</th><th>Range</th><th class="c-ok">Normal</th><th class="c-warn">Check</th><th class="c-danger">Danger</th></tr></thead>
+            <tbody>
+              <tr><td>Heart rate</td><td>0 – 200 bpm</td><td>60 – 100</td><td>50 – 59 / 101 – 120</td><td>&lt; 50 / &gt; 120</td></tr>
+              <tr><td>SpO₂</td><td>0 – 100 %</td><td>≥ 95</td><td>90 – 94</td><td>&lt; 90</td></tr>
+              <tr><td>Temperature</td><td>0 – 60 °C</td><td>&lt; 38</td><td>38 – 40</td><td>&gt; 40</td></tr>
+              <tr><td>Humidity</td><td>0 – 100 %</td><td>30 – 70</td><td>&lt; 30 / 71 – 85</td><td>&gt; 85</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+
+    <!-- ================================================================
+         PAGE: LOCATION
+         ================================================================ -->
+    <div class="page" data-page="location" hidden>
+      <div class="page-head">
+        <div><h2>Location</h2><p>No GPS underground – the zone is estimated from how strongly the base station hears W01's LoRa radio.</p></div>
+      </div>
+
+      <section class="grid">
+        <article class="span-8 glass card">
+          <header class="card-head"><div class="title"><i data-lucide="map" class="ic-amber"></i><h2>Mine tunnel</h2></div>
+            <span class="muted small">Base station at the entrance (left)</span></header>
+          <div class="tunnel-strip big">
+            <div class="zone-sec" data-zone="A"><strong>Zone A</strong><span>Near base</span></div>
+            <div class="zone-sec" data-zone="B"><strong>Zone B</strong><span>Mid tunnel</span></div>
+            <div class="zone-sec" data-zone="C"><strong>Zone C</strong><span>Deep</span></div>
+            <div class="avatar" hidden><i data-lucide="hard-hat"></i></div>
+            <span class="base-tag"><i data-lucide="radio-tower"></i> Base</span>
+          </div>
+          <div class="zone-info">
+            <div data-zone="A"><strong>Zone A · Near base</strong><span>Strongest LoRa signal. Closest to the exit and the rescue team.</span></div>
+            <div data-zone="B"><strong>Zone B · Mid tunnel</strong><span>Medium signal. Main working section of the tunnel.</span></div>
+            <div data-zone="C"><strong>Zone C · Deep</strong><span>Weakest signal. Furthest from help – longest rescue time.</span></div>
+          </div>
+        </article>
+
+        <article class="span-4 glass card sig-card">
+          <header class="card-head"><div class="title"><i data-lucide="signal" class="ic-green"></i><h2>LoRa signal</h2></div></header>
+          <div class="sig-big sig-val">
+            <span class="bars big" data-bars><i></i><i></i><i></i><i></i><i></i></span>
+            <div><span id="locRssi">--</span><small>dBm</small></div>
+          </div>
+          <p class="sig-quality" id="locQuality">Waiting for signal…</p>
+          <ul class="quick">
+            <li><i data-lucide="map-pin"></i><span>Estimated zone</span><strong id="locZone">--</strong></li>
+            <li><i data-lucide="clock"></i><span>In this zone since</span><strong id="locSince">--</strong></li>
+          </ul>
+          <p class="hint">Closer to 0 dBm = stronger. Around −60 dBm is excellent; below −90 dBm the link is weak and packets may drop.</p>
+        </article>
+      </section>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="footprints" class="ic-blue"></i><h2>Zone movements</h2></div></header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>From</th><th>To</th><th>Signal</th></tr></thead>
+            <tbody id="zoneBody"><tr class="empty"><td colspan="4">No movement recorded yet</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+
+    <!-- ================================================================
+         PAGE: LIVE CHARTS
+         ================================================================ -->
+    <div class="page" data-page="charts" hidden>
+      <div class="page-head">
+        <div><h2>Live Charts</h2><p>Heart rate and temperature for W01. Shaded band = normal range.</p></div>
+        <div class="seg" role="group" aria-label="Chart range">
+          <button class="active" data-range="15">15 min</button>
+          <button data-range="60">1 hour</button>
+        </div>
+      </div>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="heart-pulse" class="ic-green"></i><h2>Heart Rate <span class="muted">(bpm)</span></h2></div></header>
+        <div class="chart-stats" id="hrStats"></div>
+        <div class="chart-wrap tall"><canvas id="hrChart"></canvas></div>
+      </article>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="thermometer" class="ic-amber"></i><h2>Temperature <span class="muted">(°C)</span></h2></div></header>
+        <div class="chart-stats" id="tempStats"></div>
+        <div class="chart-wrap tall"><canvas id="tempChart"></canvas></div>
+      </article>
+    </div>
+
+    <!-- ================================================================
+         PAGE: ALERT HISTORY
+         ================================================================ -->
+    <div class="page" data-page="alerts" hidden>
+      <div class="page-head">
+        <div><h2>Alert History</h2><p>Every SOS and fall event from W01, saved in this browser.</p></div>
+        <div class="page-actions">
+          <button class="btn" id="exportCsv"><i data-lucide="download"></i> Export CSV</button>
+          <button class="help-btn js-help compact" id="helpBtn2"><i data-lucide="ambulance"></i><span>Help Dispatched</span></button>
+        </div>
+      </div>
+
+      <section class="stat-row">
+        <div class="glass stat"><span>Total alerts</span><strong id="stTotal">0</strong></div>
+        <div class="glass stat s-red"><span>SOS</span><strong id="stSos">0</strong></div>
+        <div class="glass stat s-amber"><span>Falls</span><strong id="stFall">0</strong></div>
+        <div class="glass stat s-open"><span>Unresolved</span><strong id="stOpen">0</strong></div>
+      </section>
+
+      <article class="glass card">
+        <header class="card-head">
+          <div class="title"><i data-lucide="history" class="ic-blue"></i><h2>All events</h2></div>
+          <div class="seg filter" role="group" aria-label="Filter alerts">
+            <button class="active" data-filter="all">All</button>
+            <button data-filter="sos">SOS</button>
+            <button data-filter="fall">Fall</button>
+            <button data-filter="open">Unresolved</button>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Zone</th><th>Resolved</th><th>Resolved at</th></tr></thead>
+            <tbody id="alertsBody"><tr class="empty"><td colspan="6">No alerts yet</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+
+    <!-- ================================================================
+         PAGE: DEVICE & CONNECTION
+         ================================================================ -->
+    <div class="page" data-page="device" hidden>
+      <div class="page-head">
+        <div><h2>Device &amp; Connection</h2><p>How data gets from the worker's wrist to this screen.</p></div>
+      </div>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="workflow" class="ic-purple"></i><h2>Data path</h2></div></header>
+        <ol class="flow" id="flow">
+          <li><i data-lucide="watch"></i><strong>Wrist unit</strong><span>ESP32 · pulse/SpO₂, temperature, humidity &amp; fall sensors · SOS button</span></li>
+          <li><i data-lucide="radio"></i><strong>LoRa radio</strong><span>Long-range link through the tunnel</span></li>
+          <li><i data-lucide="radio-tower"></i><strong>Base station</strong><span>Receives LoRa, estimates zone, uploads over Wi-Fi</span></li>
+          <li><i data-lucide="cloud"></i><strong>Blynk IoT cloud</strong><span>Server BLR1 · datastreams V0 – V11</span></li>
+          <li><i data-lucide="monitor"></i><strong>This dashboard</strong><span>Reads Blynk every 2 s</span></li>
+        </ol>
+      </article>
+
+      <section class="grid">
+        <article class="span-6 glass card">
+          <header class="card-head"><div class="title"><i data-lucide="plug-zap" class="ic-green"></i><h2>Connection</h2></div></header>
+          <ul class="quick">
+            <li><i data-lucide="toggle-right"></i><span>Mode</span><strong id="devMode">--</strong></li>
+            <li><i data-lucide="server"></i><span>Blynk server</span><strong>blr1.blynk.cloud</strong></li>
+            <li><i data-lucide="key-round"></i><span>Auth token</span><strong id="devToken">--</strong></li>
+            <li><i data-lucide="timer"></i><span>Refresh interval</span><strong>Every 2 s</strong></li>
+            <li><i data-lucide="check-circle-2"></i><span>Successful reads</span><strong id="devOk">0</strong></li>
+            <li><i data-lucide="circle-x"></i><span>Failed reads</span><strong id="devFail">0</strong></li>
+            <li><i data-lucide="clock"></i><span>Last good reading</span><strong id="devLast">--</strong></li>
+          </ul>
+        </article>
+
+        <article class="span-6 glass card">
+          <header class="card-head"><div class="title"><i data-lucide="database" class="ic-blue"></i><h2>Blynk datastreams</h2></div></header>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Pin</th><th>Data</th><th>Latest value</th></tr></thead>
+              <tbody id="pinBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <article class="glass card">
+        <header class="card-head"><div class="title"><i data-lucide="hard-drive" class="ic-amber"></i><h2>Data saved in this browser</h2></div></header>
+        <p class="hint">Alert history, zone movements and the last hour of chart data are kept in this browser only, so they survive a page refresh.</p>
+        <div class="page-actions left">
+          <button class="btn danger" id="clearHistory"><i data-lucide="trash-2"></i> Clear alert history</button>
+          <button class="btn" id="clearChart"><i data-lucide="eraser"></i> Clear chart &amp; zone data</button>
+        </div>
+      </article>
+    </div>
+
+    <footer class="foot">Sem 3 EL · IoT-based multi-sensor mining safety system · Data via Blynk IoT (BLR1)</footer>
+    </main>
+    </div><!-- /shell -->
+  </div>
+
+  <!-- Confirmation toast (shared by every page) -->
+  <div class="help-toast" id="helpToast" role="status" aria-live="polite" hidden>
+    <i data-lucide="circle-check" class="ic-green"></i>
+    <div><strong id="helpToastText">Help has been dispatched to W01</strong><span>Team is on the way.</span></div>
+    <button class="x" id="helpToastClose" aria-label="Close"><i data-lucide="x"></i></button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
