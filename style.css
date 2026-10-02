@@ -1,4 +1,4 @@
-/* ===== Mining Safety Monitor – glass / mine-tunnel theme ===== */
+/* ===== Smart Health Monitor – glass / wearable-health theme ===== */
 :root {
   --bg: #05070b;
   --glass: rgba(16, 21, 31, 0.72);
@@ -390,10 +390,13 @@ th { background: rgba(7,21,35,.95); }
   .card { padding: 12px; }
 }
 
-/* Photographic tunnel imagery replaces the schematic SVG tunnel. */
-.page-bg { background: #090b0d url("assets/mine-tunnel.png") center 48% / cover no-repeat; }
-.page-bg svg { display: none; }
-.page-bg::after { background: linear-gradient(180deg, rgba(2,8,15,.72), rgba(2,8,15,.68)); }
+/* Health / wearable background: gradient + glows + animated ECG trace (no blur, so the lines stay crisp). */
+.page-bg { inset: 0; filter: none; background: #020b18; }
+.page-bg svg { display: block; }
+.page-bg::after { background: linear-gradient(180deg, rgba(2,8,18,.35), rgba(2,8,18,.55)); }
+.page-bg .ecg { stroke-dasharray: 1400 2600; animation: ecgRun 7s linear infinite; }
+@keyframes ecgRun { from { stroke-dashoffset: 4000; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .page-bg .ecg { animation: none; stroke-dasharray: none; } }
 .tunnel-strip { background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)); }
 .row-2col > .span-4 { grid-column: span 6; }
 @media (max-width: 760px) { .row-2col > .span-4 { grid-column: span 12; } }

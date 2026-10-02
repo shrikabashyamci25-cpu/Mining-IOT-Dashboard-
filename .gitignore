@@ -1,1 +1,4 @@
 .claude/
+
+# Private Blynk token – never commit this
+config.js

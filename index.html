@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mining Safety Monitor</title>
+  <title>Smart Health Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -13,25 +13,30 @@
 </head>
 <body>
 
-  <!-- Blurred mine-tunnel background -->
+  <!-- Health / wearable background: soft gradient, glow, ECG pulse lines -->
   <div class="page-bg" aria-hidden="true">
     <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
       <defs>
-        <radialGradient id="bgGlow" cx="50%" cy="45%" r="55%">
-          <stop offset="0" stop-color="#5a3d1c"/><stop offset=".35" stop-color="#2a1d10"/><stop offset="1" stop-color="#05070b"/>
-        </radialGradient>
-        <radialGradient id="bgLamp"><stop offset="0" stop-color="#ffc766" stop-opacity=".9"/><stop offset="1" stop-color="#ffc766" stop-opacity="0"/></radialGradient>
+        <linearGradient id="bgBase" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#03142a"/><stop offset=".55" stop-color="#020b18"/><stop offset="1" stop-color="#06061a"/>
+        </linearGradient>
+        <radialGradient id="glowTeal" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#00d7aa" stop-opacity=".28"/><stop offset="1" stop-color="#00d7aa" stop-opacity="0"/></radialGradient>
+        <radialGradient id="glowBlue" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#08a9ff" stop-opacity=".25"/><stop offset="1" stop-color="#08a9ff" stop-opacity="0"/></radialGradient>
+        <radialGradient id="glowPurple" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ae4dff" stop-opacity=".18"/><stop offset="1" stop-color="#ae4dff" stop-opacity="0"/></radialGradient>
+        <pattern id="dots" width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#5fb6ff" fill-opacity=".14"/></pattern>
+        <linearGradient id="ecgFade" x1="0" x2="1"><stop offset="0" stop-color="#00d7aa" stop-opacity="0"/><stop offset=".2" stop-color="#00d7aa" stop-opacity=".55"/><stop offset=".8" stop-color="#08a9ff" stop-opacity=".55"/><stop offset="1" stop-color="#08a9ff" stop-opacity="0"/></linearGradient>
       </defs>
-      <rect width="1600" height="1000" fill="url(#bgGlow)"/>
-      <g fill="none" stroke="#6e5232" opacity=".7">
-        <path d="M100 1000V420a700 380 0 0 1 1400 0v580" stroke-width="40"/>
-        <path d="M380 1000V470a420 240 0 0 1 840 0v530" stroke-width="26"/>
-        <path d="M580 1000V500a220 140 0 0 1 440 0v500" stroke-width="16"/>
-        <path d="M700 1000V520a100 70 0 0 1 200 0v480" stroke-width="10"/>
+      <rect width="1600" height="1000" fill="url(#bgBase)"/>
+      <rect width="1600" height="1000" fill="url(#dots)"/>
+      <circle cx="220" cy="180" r="420" fill="url(#glowTeal)"/>
+      <circle cx="1400" cy="820" r="480" fill="url(#glowBlue)"/>
+      <circle cx="1250" cy="150" r="320" fill="url(#glowPurple)"/>
+      <!-- ECG / heartbeat traces -->
+      <g fill="none" stroke="url(#ecgFade)" stroke-linecap="round" stroke-linejoin="round">
+        <path class="ecg" stroke-width="3" d="M0 520h260l20-18 18 18h40l16 40 24-210 26 260 18-90h60l22-26 24 26h220l20-18 18 18h40l16 40 24-210 26 260 18-90h60l22-26 24 26h420"/>
+        <path stroke-width="1.5" opacity=".45" d="M0 760h380l14-12 14 12h30l12 28 18-150 20 190 14-68h44l16-18 18 18h300l14-12 14 12h30l12 28 18-150 20 190 14-68h44l16-18 18 18h300"/>
+        <path stroke-width="1.5" opacity=".3" d="M0 250h520l14-12 14 12h30l12 28 18-150 20 190 14-68h44l16-18 18 18h820"/>
       </g>
-      <g stroke="#9aa0a8" stroke-width="8" opacity=".6"><path d="M300 1000 760 560M1300 1000 840 560"/></g>
-      <circle cx="300" cy="360" r="160" fill="url(#bgLamp)"/><circle cx="1300" cy="360" r="160" fill="url(#bgLamp)"/>
-      <circle cx="800" cy="470" r="90" fill="url(#bgLamp)"/>
     </svg>
   </div>
 
@@ -41,17 +46,17 @@
     <header class="topbar glass">
       <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><i data-lucide="menu"></i></button>
       <div class="brand">
-        <div class="brand-icon"><i data-lucide="hard-hat"></i></div>
+        <div class="brand-icon"><i data-lucide="heart-pulse"></i></div>
         <div>
-          <h1>Mining Safety Monitor</h1>
-          <p>Safer Miners. Stronger Tomorrow.</p>
+          <h1>Smart Health Monitor</h1>
+          <p>Personalized, context-aware vital monitoring</p>
         </div>
       </div>
 
       <div class="head-info">
         <div class="head-item">
           <i data-lucide="user-round" class="muted-ic"></i>
-          <div><span class="lbl">Worker ID</span><strong>W01</strong></div>
+          <div><span class="lbl">User ID</span><strong>W01</strong></div>
         </div>
         <span class="pill-status online" id="statusPill"><span class="dot"></span><span id="statusText">Connecting…</span></span>
         <div class="head-item">
@@ -64,7 +69,7 @@
         <span class="hicon ok" id="wifiIcon" title="Blynk connection"><i data-lucide="wifi"></i></span>
         <span class="blynk"><i data-lucide="cloud"></i> Blynk IoT</span>
         <a class="hicon" href="#device" title="Device &amp; connection settings"><i data-lucide="settings"></i></a>
-        <span class="hicon" title="Supervisor"><i data-lucide="circle-user-round"></i></span>
+        <span class="hicon" title="Caregiver"><i data-lucide="circle-user-round"></i></span>
       </div>
     </header>
 
@@ -85,8 +90,8 @@
         <a href="#device" data-nav="device"><i data-lucide="radio-tower"></i><span>Device &amp; Connection</span></a>
       </nav>
       <div class="side-worker" id="sideWorker">
-        <span class="sw-ic"><i data-lucide="hard-hat"></i></span>
-        <div><strong>Worker W01</strong><span id="sideZone">Zone --</span></div>
+        <span class="sw-ic"><i data-lucide="watch"></i></span>
+        <div><strong>User W01</strong><span id="sideZone">Zone --</span></div>
         <span class="sw-dot" title="Connection"></span>
       </div>
     </aside>
@@ -95,8 +100,8 @@
     <main class="main">
 
     <div class="setup-note" id="setupNote" hidden>
-      <strong>Demo mode:</strong> showing made-up data. Open <code>app.js</code>, paste your Blynk Auth Token into
-      <code>BLYNK_TOKEN</code> on line 8, save, and refresh this page.
+      <strong>Demo mode:</strong> showing made-up data. Copy <code>config.example.js</code> to <code>config.js</code>,
+      paste your Blynk Auth Token into it, save, and refresh this page.
     </div>
 
     <!-- ================= ALERT BANNERS ================= -->
@@ -171,8 +176,8 @@
           <strong id="ovZone">--</strong>
           <span id="ovZoneDesc">Waiting for zone…</span>
         </div>
-        <div class="zone-bar" aria-label="Tunnel zones, base on the left">
-          <span class="zb-base" title="Base station"><i data-lucide="radio-tower"></i></span>
+        <div class="zone-bar" aria-label="Coverage zones, hub on the left">
+          <span class="zb-base" title="Base station (hub)"><i data-lucide="radio-tower"></i></span>
           <div class="zb" data-zone="A">A</div>
           <div class="zb" data-zone="B">B</div>
           <div class="zb" data-zone="C">C</div>
@@ -223,7 +228,7 @@
       </article>
     </section>
 
-    <!-- ================= ROW 4: history + tunnel view + quick info ================= -->
+    <!-- ================= ROW 4: history + quick info ================= -->
     <section class="grid row-2col">
       <article class="span-4 glass card">
         <header class="card-head">
@@ -241,7 +246,7 @@
       <article class="span-4 glass card">
         <header class="card-head"><div class="title"><i data-lucide="settings" class="ic-blue"></i><h2>Quick Info</h2></div></header>
         <ul class="quick">
-          <li><i data-lucide="user-round"></i><span>Worker ID</span><strong>W01</strong></li>
+          <li><i data-lucide="user-round"></i><span>User ID</span><strong>W01</strong></li>
           <li><i data-lucide="map-pin"></i><span>Current Zone</span><strong id="qiZone">--</strong></li>
           <li><i data-lucide="clock"></i><span>Last Updated</span><strong id="qiUpdated">--</strong></li>
           <li><i data-lucide="signal"></i><span>Signal Strength</span><strong class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="qiSignal">--</span></strong></li>
@@ -257,7 +262,7 @@
          ================================================================ -->
     <div class="page" data-page="vitals" hidden>
       <div class="page-head">
-        <div><h2>Vital Signs</h2><p>Live readings from W01's wrist unit, refreshed every 2 seconds. Green = normal · Amber = check · Red = danger.</p></div>
+        <div><h2>Vital Signs</h2><p>Live readings from W01's wearable, refreshed every 2 seconds. Green = normal · Amber = check · Red = danger.</p></div>
       </div>
       <!-- cards are built by app.js (VITALS list) -->
       <section class="vitals-grid" id="vitalsGrid"></section>
@@ -283,24 +288,24 @@
          ================================================================ -->
     <div class="page" data-page="location" hidden>
       <div class="page-head">
-        <div><h2>Location</h2><p>No GPS underground – the zone is estimated from how strongly the base station hears W01's LoRa radio.</p></div>
+        <div><h2>Location</h2><p>No GPS needed – the zone is estimated from how strongly the base station hears W01's LoRa radio.</p></div>
       </div>
 
       <section class="grid">
         <article class="span-8 glass card">
-          <header class="card-head"><div class="title"><i data-lucide="map" class="ic-amber"></i><h2>Mine tunnel</h2></div>
-            <span class="muted small">Base station at the entrance (left)</span></header>
+          <header class="card-head"><div class="title"><i data-lucide="map" class="ic-amber"></i><h2>Coverage zones</h2></div>
+            <span class="muted small">Base station (hub) on the left</span></header>
           <div class="tunnel-strip big">
-            <div class="zone-sec" data-zone="A"><strong>Zone A</strong><span>Near base</span></div>
-            <div class="zone-sec" data-zone="B"><strong>Zone B</strong><span>Mid tunnel</span></div>
-            <div class="zone-sec" data-zone="C"><strong>Zone C</strong><span>Deep</span></div>
-            <div class="avatar" hidden><i data-lucide="hard-hat"></i></div>
-            <span class="base-tag"><i data-lucide="radio-tower"></i> Base</span>
+            <div class="zone-sec" data-zone="A"><strong>Zone A</strong><span>Near hub</span></div>
+            <div class="zone-sec" data-zone="B"><strong>Zone B</strong><span>Mid range</span></div>
+            <div class="zone-sec" data-zone="C"><strong>Zone C</strong><span>Far range</span></div>
+            <div class="avatar" hidden><i data-lucide="user-round"></i></div>
+            <span class="base-tag"><i data-lucide="radio-tower"></i> Hub</span>
           </div>
           <div class="zone-info">
-            <div data-zone="A"><strong>Zone A · Near base</strong><span>Strongest LoRa signal. Closest to the exit and the rescue team.</span></div>
-            <div data-zone="B"><strong>Zone B · Mid tunnel</strong><span>Medium signal. Main working section of the tunnel.</span></div>
-            <div data-zone="C"><strong>Zone C · Deep</strong><span>Weakest signal. Furthest from help – longest rescue time.</span></div>
+            <div data-zone="A"><strong>Zone A · Near hub</strong><span>Strongest LoRa signal. Closest to the base station and to help.</span></div>
+            <div data-zone="B"><strong>Zone B · Mid range</strong><span>Medium signal. Normal activity area.</span></div>
+            <div data-zone="C"><strong>Zone C · Far range</strong><span>Weakest signal. Furthest from help – longest response time.</span></div>
           </div>
         </article>
 
@@ -398,14 +403,14 @@
          ================================================================ -->
     <div class="page" data-page="device" hidden>
       <div class="page-head">
-        <div><h2>Device &amp; Connection</h2><p>How data gets from the worker's wrist to this screen.</p></div>
+        <div><h2>Device &amp; Connection</h2><p>How data gets from the wearable to this screen.</p></div>
       </div>
 
       <article class="glass card">
         <header class="card-head"><div class="title"><i data-lucide="workflow" class="ic-purple"></i><h2>Data path</h2></div></header>
         <ol class="flow" id="flow">
-          <li><i data-lucide="watch"></i><strong>Wrist unit</strong><span>ESP32 · pulse/SpO₂, temperature, humidity &amp; fall sensors · SOS button</span></li>
-          <li><i data-lucide="radio"></i><strong>LoRa radio</strong><span>Long-range link through the tunnel</span></li>
+          <li><i data-lucide="watch"></i><strong>Wearable unit</strong><span>ESP32 · pulse/SpO₂, temperature, humidity &amp; motion/fall sensors · SOS button</span></li>
+          <li><i data-lucide="radio"></i><strong>LoRa radio</strong><span>Long-range, low-power wireless link</span></li>
           <li><i data-lucide="radio-tower"></i><strong>Base station</strong><span>Receives LoRa, estimates zone, uploads over Wi-Fi</span></li>
           <li><i data-lucide="cloud"></i><strong>Blynk IoT cloud</strong><span>Server BLR1 · datastreams V0 – V11</span></li>
           <li><i data-lucide="monitor"></i><strong>This dashboard</strong><span>Reads Blynk every 2 s</span></li>
@@ -447,7 +452,7 @@
       </article>
     </div>
 
-    <footer class="foot">Sem 3 EL · IoT-based multi-sensor mining safety system · Data via Blynk IoT (BLR1)</footer>
+    <footer class="foot">Sem 3 EL · Personalized, context-aware wearable health monitoring · Data via Blynk IoT (BLR1)</footer>
     </main>
     </div><!-- /shell -->
   </div>
@@ -459,6 +464,8 @@
     <button class="x" id="helpToastClose" aria-label="Close"><i data-lucide="x"></i></button>
   </div>
 
+  <!-- config.js holds your private Blynk token and is not committed to git. See config.example.js -->
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

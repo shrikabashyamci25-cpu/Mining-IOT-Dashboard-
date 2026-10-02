@@ -1,11 +1,12 @@
 // =====================================================================
-//  Mining Safety Monitor – reads live data from Blynk IoT (server BLR1)
+//  Smart Health Monitor – reads live data from Blynk IoT (server BLR1)
 // =====================================================================
 
 // ---------------------------------------------------------------------
-// 1) PASTE YOUR BLYNK AUTH TOKEN BETWEEN THE QUOTES BELOW, then save.
+// 1) Blynk Auth Token – set it in config.js, not here.
 // ---------------------------------------------------------------------
-const BLYNK_TOKEN = "osl-1hthYAE553II20Pn_2cFlCpT0E87";
+// Your token lives in config.js (kept out of git). See config.example.js.
+const BLYNK_TOKEN = window.BLYNK_TOKEN || "PASTE_YOUR_TOKEN_HERE";
 
 const BLYNK_SERVER = "https://blr1.blynk.cloud/external/api";
 const POLL_MS = 2000;            // ask Blynk for new values every 2 s
@@ -57,7 +58,7 @@ const demo = { t0: Date.now(), sos: 0, fall: 0, dispatched: false };
 function demoData() {
   const s = (Date.now() - demo.t0) / 1000;
   if (!demo.dispatched && s > 15 && s < 17) { demo.sos = 1; demo.fall = 1; }   // fake alerts after 15 s
-  const zone = ["Zone A (near base)", "Zone B (mid tunnel)", "Zone C (far / deep)"][Math.floor(s / 30) % 3];
+  const zone = ["Zone A (near hub)", "Zone B (mid range)", "Zone C (far range)"][Math.floor(s / 30) % 3];
   const rssi = { A: -62, B: -68, C: -95 }[zone[5]] + Math.round(Math.random() * 4 - 2);
   return {
     V0: demo.sos ? "W01 - ALERT!" : "W01 (online)",
@@ -242,7 +243,7 @@ function render(d) {
   document.querySelectorAll(".zone-sec, .zone-info > div, .zb").forEach((z) => z.classList.toggle("active", z.dataset.zone === zone));
   document.querySelector(".zone-bar").classList.toggle("alert", alert);
   $("ovZone").textContent = zone ? zoneName : "Unknown";
-  $("ovZoneDesc").textContent = zone ? { A: "Near base", B: "Mid tunnel", C: "Deep – furthest from help" }[zone] : "Zone not reported";
+  $("ovZoneDesc").textContent = zone ? { A: "Near hub", B: "Mid range", C: "Far range – furthest from help" }[zone] : "Zone not reported";
   document.querySelectorAll(".tunnel-strip").forEach((s) => s.classList.toggle("alert", alert));
   document.querySelectorAll(".avatar").forEach((a) => {
     a.hidden = !zone;
@@ -371,7 +372,7 @@ document.querySelectorAll("[data-filter]").forEach((btn) => {
 });
 
 $("exportCsv").addEventListener("click", () => {
-  const lines = [["Date", "Time", "Worker", "Type", "Zone", "Resolved", "Resolved at"]].concat(
+  const lines = [["Date", "Time", "User", "Type", "Zone", "Resolved", "Resolved at"]].concat(
     alertLog.map((h) => [day(h.time), clock(new Date(h.time)), WORKER, h.type === "sos" ? "SOS" : "Fall", h.zone,
       h.resolved ? "Yes" : "No", h.resolvedAt ? clock(new Date(h.resolvedAt)) : ""]));
   const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
@@ -578,7 +579,7 @@ function showPage() {
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
   const label = document.querySelector(`[data-nav="${currentPage}"] span`).textContent;
-  document.title = currentPage === "overview" ? "Mining Safety Monitor" : `${label} · Mining Safety Monitor`;
+  document.title = currentPage === "overview" ? "Smart Health Monitor" : `${label} · Smart Health Monitor`;
   setMenu(false);
   drawChart();
   [chart, hrChart, tempChart].forEach((c) => c && c.resize());
