@@ -7,8 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.453.0/dist/umd/lucide.min.js"></script>
 </head>
 <body>
@@ -69,7 +71,25 @@
         <span class="hicon ok" id="wifiIcon" title="Blynk connection"><i data-lucide="wifi"></i></span>
         <span class="blynk"><i data-lucide="cloud"></i> Blynk IoT</span>
         <a class="hicon" href="#device" title="Device &amp; connection settings"><i data-lucide="settings"></i></a>
-        <span class="hicon" title="Caregiver"><i data-lucide="circle-user-round"></i></span>
+        <div class="profile">
+          <button type="button" class="hicon" id="profileBtn" title="Profile" aria-haspopup="true" aria-expanded="false" aria-controls="profileMenu"><i data-lucide="circle-user-round"></i></button>
+          <div class="profile-menu glass" id="profileMenu" hidden>
+            <div class="pm-head">
+              <span class="pm-avatar"><i data-lucide="user-round"></i></span>
+              <div><strong>User W01</strong><span>Wrist unit · Blynk IoT</span></div>
+            </div>
+            <dl class="pm-info">
+              <div><dt>Status</dt><dd id="pmStatus">--</dd></div>
+              <div><dt>Location</dt><dd id="pmLoc">--</dd></div>
+              <div><dt>Last updated</dt><dd id="pmUpdated">--</dd></div>
+            </dl>
+            <nav class="pm-links">
+              <a href="#vitals"><i data-lucide="heart-pulse"></i> Vital Signs</a>
+              <a href="#alerts"><i data-lucide="bell-ring"></i> Alert History</a>
+              <a href="#device"><i data-lucide="settings"></i> Device &amp; Connection</a>
+            </nav>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -91,7 +111,7 @@
       </nav>
       <div class="side-worker" id="sideWorker">
         <span class="sw-ic"><i data-lucide="watch"></i></span>
-        <div><strong>User W01</strong><span id="sideZone">Zone --</span></div>
+        <div><strong>User W01</strong><span id="sideLoc">GPS --</span></div>
         <span class="sw-dot" title="Connection"></span>
       </div>
     </aside>
@@ -173,18 +193,13 @@
           <a class="link" href="#location">Details <i data-lucide="arrow-right"></i></a>
         </header>
         <div class="loc-now">
-          <strong id="ovZone">--</strong>
-          <span id="ovZoneDesc">Waiting for zone…</span>
+          <strong id="ovFix">--</strong>
+          <span id="ovCoords">Waiting for GPS…</span>
         </div>
-        <div class="zone-bar" aria-label="Coverage zones, hub on the left">
-          <span class="zb-base" title="Base station (hub)"><i data-lucide="radio-tower"></i></span>
-          <div class="zb" data-zone="A">A</div>
-          <div class="zb" data-zone="B">B</div>
-          <div class="zb" data-zone="C">C</div>
-        </div>
+        <div class="map mini-map" id="ovMap" aria-label="Map of W01's current position"></div>
         <div class="signal-row">
-          <span class="sig-label"><i data-lucide="signal"></i> LoRa signal</span>
-          <span class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="loraValLoc">-- dBm</span></span>
+          <span class="sig-label"><i data-lucide="satellite"></i> GPS satellites</span>
+          <span class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="satValLoc">--</span></span>
         </div>
       </article>
     </section>
@@ -237,7 +252,7 @@
         </header>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Time</th><th>Type</th><th>Zone</th><th>Resolved</th></tr></thead>
+            <thead><tr><th>Time</th><th>Type</th><th>Location</th><th>Resolved</th></tr></thead>
             <tbody id="historyBody"><tr class="empty"><td colspan="4">No alerts yet</td></tr></tbody>
           </table>
         </div>
@@ -247,9 +262,9 @@
         <header class="card-head"><div class="title"><i data-lucide="settings" class="ic-blue"></i><h2>Quick Info</h2></div></header>
         <ul class="quick">
           <li><i data-lucide="user-round"></i><span>User ID</span><strong>W01</strong></li>
-          <li><i data-lucide="map-pin"></i><span>Current Zone</span><strong id="qiZone">--</strong></li>
+          <li><i data-lucide="map-pin"></i><span>Location</span><strong id="qiLoc">--</strong></li>
           <li><i data-lucide="clock"></i><span>Last Updated</span><strong id="qiUpdated">--</strong></li>
-          <li><i data-lucide="signal"></i><span>Signal Strength</span><strong class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="qiSignal">--</span></strong></li>
+          <li><i data-lucide="satellite"></i><span>GPS Satellites</span><strong class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="qiSats">--</span></strong></li>
           <li><i data-lucide="message-square"></i><span>Device Message</span><strong id="qiStatus">--</strong></li>
         </ul>
       </article>
@@ -288,48 +303,42 @@
          ================================================================ -->
     <div class="page" data-page="location" hidden>
       <div class="page-head">
-        <div><h2>Location</h2><p>No GPS needed – the zone is estimated from how strongly the base station hears W01's LoRa radio.</p></div>
+        <div><h2>Location</h2><p>Live position from W01's Neo-6M GPS module. It needs a clear view of the sky, so it may lose its fix indoors.</p></div>
       </div>
 
       <section class="grid">
         <article class="span-8 glass card">
-          <header class="card-head"><div class="title"><i data-lucide="map" class="ic-amber"></i><h2>Coverage zones</h2></div>
-            <span class="muted small">Base station (hub) on the left</span></header>
-          <div class="tunnel-strip big">
-            <div class="zone-sec" data-zone="A"><strong>Zone A</strong><span>Near hub</span></div>
-            <div class="zone-sec" data-zone="B"><strong>Zone B</strong><span>Mid range</span></div>
-            <div class="zone-sec" data-zone="C"><strong>Zone C</strong><span>Far range</span></div>
-            <div class="avatar" hidden><i data-lucide="user-round"></i></div>
-            <span class="base-tag"><i data-lucide="radio-tower"></i> Hub</span>
-          </div>
-          <div class="zone-info">
-            <div data-zone="A"><strong>Zone A · Near hub</strong><span>Strongest LoRa signal. Closest to the base station and to help.</span></div>
-            <div data-zone="B"><strong>Zone B · Mid range</strong><span>Medium signal. Normal activity area.</span></div>
-            <div data-zone="C"><strong>Zone C · Far range</strong><span>Weakest signal. Furthest from help – longest response time.</span></div>
+          <header class="card-head"><div class="title"><i data-lucide="map" class="ic-amber"></i><h2>Live map</h2></div>
+            <a class="link" id="gmapsLink" target="_blank" rel="noopener" hidden>Open in Google Maps <i data-lucide="external-link"></i></a></header>
+          <div class="map-wrap">
+            <div class="map big-map" id="locMap" aria-label="Map of W01's position and recent path"></div>
+            <p class="map-empty" id="mapEmpty">Waiting for a GPS fix…</p>
           </div>
         </article>
 
         <article class="span-4 glass card sig-card">
-          <header class="card-head"><div class="title"><i data-lucide="signal" class="ic-green"></i><h2>LoRa signal</h2></div></header>
+          <header class="card-head"><div class="title"><i data-lucide="satellite" class="ic-green"></i><h2>GPS (Neo-6M)</h2></div></header>
           <div class="sig-big sig-val">
             <span class="bars big" data-bars><i></i><i></i><i></i><i></i><i></i></span>
-            <div><span id="locRssi">--</span><small>dBm</small></div>
+            <div><span id="locSats">--</span><small>satellites</small></div>
           </div>
-          <p class="sig-quality" id="locQuality">Waiting for signal…</p>
+          <p class="sig-quality" id="locQuality">Waiting for GPS…</p>
           <ul class="quick">
-            <li><i data-lucide="map-pin"></i><span>Estimated zone</span><strong id="locZone">--</strong></li>
-            <li><i data-lucide="clock"></i><span>In this zone since</span><strong id="locSince">--</strong></li>
+            <li><i data-lucide="move-vertical"></i><span>Latitude</span><strong id="locLat">--</strong></li>
+            <li><i data-lucide="move-horizontal"></i><span>Longitude</span><strong id="locLng">--</strong></li>
+            <li><i data-lucide="clock"></i><span>Last fix</span><strong id="locFixTime">--</strong></li>
           </ul>
-          <p class="hint">Closer to 0 dBm = stronger. Around −60 dBm is excellent; below −90 dBm the link is weak and packets may drop.</p>
+          <p class="hint">The Neo-6M needs at least 4 satellites for a reliable position. With 6 or more it is usually accurate to a few metres outdoors.</p>
         </article>
       </section>
 
       <article class="glass card">
-        <header class="card-head"><div class="title"><i data-lucide="footprints" class="ic-blue"></i><h2>Zone movements</h2></div></header>
+        <header class="card-head"><div class="title"><i data-lucide="footprints" class="ic-blue"></i><h2>Position log</h2></div>
+          <span class="muted small">A new row each time W01 moves 10 m or more</span></header>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Time</th><th>From</th><th>To</th><th>Signal</th></tr></thead>
-            <tbody id="zoneBody"><tr class="empty"><td colspan="4">No movement recorded yet</td></tr></tbody>
+            <thead><tr><th>Time</th><th>Latitude</th><th>Longitude</th><th>Moved</th></tr></thead>
+            <tbody id="posBody"><tr class="empty"><td colspan="4">No positions recorded yet</td></tr></tbody>
           </table>
         </div>
       </article>
@@ -391,7 +400,7 @@
         </header>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Zone</th><th>Resolved</th><th>Resolved at</th></tr></thead>
+            <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Location</th><th>Resolved</th><th>Resolved at</th></tr></thead>
             <tbody id="alertsBody"><tr class="empty"><td colspan="6">No alerts yet</td></tr></tbody>
           </table>
         </div>
@@ -410,9 +419,9 @@
         <header class="card-head"><div class="title"><i data-lucide="workflow" class="ic-purple"></i><h2>Data path</h2></div></header>
         <ol class="flow" id="flow">
           <li><i data-lucide="watch"></i><strong>Wearable unit</strong><span>ESP32 · pulse/SpO₂, temperature, humidity &amp; motion/fall sensors · SOS button</span></li>
-          <li><i data-lucide="radio"></i><strong>LoRa radio</strong><span>Long-range, low-power wireless link</span></li>
-          <li><i data-lucide="radio-tower"></i><strong>Base station</strong><span>Receives LoRa, estimates zone, uploads over Wi-Fi</span></li>
-          <li><i data-lucide="cloud"></i><strong>Blynk IoT cloud</strong><span>Server BLR1 · datastreams V0 – V11</span></li>
+          <li><i data-lucide="satellite"></i><strong>Neo-6M GPS</strong><span>Satellite position: latitude, longitude and satellites in view</span></li>
+          <li><i data-lucide="wifi"></i><strong>Wi-Fi</strong><span>The ESP32 uploads readings straight to the cloud</span></li>
+          <li><i data-lucide="cloud"></i><strong>Blynk IoT cloud</strong><span>Server BLR1 · datastreams V0 – V13</span></li>
           <li><i data-lucide="monitor"></i><strong>This dashboard</strong><span>Reads Blynk every 2 s</span></li>
         </ol>
       </article>
@@ -444,10 +453,10 @@
 
       <article class="glass card">
         <header class="card-head"><div class="title"><i data-lucide="hard-drive" class="ic-amber"></i><h2>Data saved in this browser</h2></div></header>
-        <p class="hint">Alert history, zone movements and the last hour of chart data are kept in this browser only, so they survive a page refresh.</p>
+        <p class="hint">Alert history, the position log and the last hour of chart data are kept in this browser only, so they survive a page refresh.</p>
         <div class="page-actions left">
           <button class="btn danger" id="clearHistory"><i data-lucide="trash-2"></i> Clear alert history</button>
-          <button class="btn" id="clearChart"><i data-lucide="eraser"></i> Clear chart &amp; zone data</button>
+          <button class="btn" id="clearChart"><i data-lucide="eraser"></i> Clear chart &amp; position data</button>
         </div>
       </article>
     </div>
@@ -465,7 +474,7 @@
   </div>
 
   <!-- config.js holds your private Blynk token and is not committed to git. See config.example.js -->
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

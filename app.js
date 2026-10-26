@@ -15,7 +15,8 @@ const WORKER = "W01";
 // Datastream pins (must match the Blynk template)
 const PIN = {
   status: "V0", hr: "V1", spo2: "V2", temp: "V3", hum: "V4",
-  fall: "V5", sos: "V6", zone: "V9", help: "V10", lora: "V11",
+  fall: "V5", sos: "V6", help: "V10",
+  lat: "V11", lng: "V12", sats: "V13",   // Neo-6M GPS
 };
 
 const DEMO = !BLYNK_TOKEN || BLYNK_TOKEN.startsWith("PASTE_");
@@ -45,6 +46,13 @@ async function readBlynk() {
   return res.json();   // e.g. { "V0": "W01 (online)", "V1": 82, ... }
 }
 
+// Is the wearable itself connected to Blynk right now? (Blynk keeps the last values even when it isn't)
+async function deviceOnline() {
+  const res = await fetch(`${BLYNK_SERVER}/isHardwareConnected?token=${encodeURIComponent(BLYNK_TOKEN)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Blynk replied ${res.status}`);
+  return (await res.text()).trim() === "true";
+}
+
 async function writeBlynk(values) {
   const query = Object.entries(values).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const res = await fetch(`${BLYNK_SERVER}/batch/update?token=${encodeURIComponent(BLYNK_TOKEN)}&${query}`);
@@ -58,15 +66,17 @@ const demo = { t0: Date.now(), sos: 0, fall: 0, dispatched: false };
 function demoData() {
   const s = (Date.now() - demo.t0) / 1000;
   if (!demo.dispatched && s > 15 && s < 17) { demo.sos = 1; demo.fall = 1; }   // fake alerts after 15 s
-  const zone = ["Zone A (near hub)", "Zone B (mid range)", "Zone C (far range)"][Math.floor(s / 30) % 3];
-  const rssi = { A: -62, B: -68, C: -95 }[zone[5]] + Math.round(Math.random() * 4 - 2);
+  // walk slowly round a small loop near RVCE, Bengaluru
+  const a = s / 120;
+  const lat = 12.92370 + 0.0009 * Math.sin(a), lng = 77.49870 + 0.0012 * Math.cos(a);
   return {
     V0: demo.sos ? "W01 - ALERT!" : "W01 (online)",
     V1: Math.round(72 + 6 * Math.sin(s / 15) + Math.random() * 3 + (demo.sos ? 25 : 0)),
     V2: Math.round(97 + Math.random() * 2),
     V3: +(36.6 + 0.4 * Math.sin(s / 40) + Math.random() * 0.2).toFixed(1),
     V4: Math.round(42 + Math.random() * 4),
-    V5: demo.fall, V6: demo.sos, V9: zone, V10: 0, V11: rssi,
+    V5: demo.fall, V6: demo.sos, V10: 0,
+    V11: lat.toFixed(6), V12: lng.toFixed(6), V13: 7 + Math.round(Math.random() * 3),
   };
 }
 
@@ -93,6 +103,13 @@ function setGauge(key, value, decimals = 0) {
   const fill = card.querySelector(".arc-fill");
   card.classList.remove("warn", "danger");
 
+  if (!deviceIsOnline) {
+    $(`${key}Val`).textContent = (0).toFixed(decimals);
+    $(`${key}Pill`).textContent = "Offline";
+    fill.style.strokeDasharray = `0 251.33`;
+    updateVital(key, null, null, "Offline", decimals);
+    return;
+  }
   if (value === null || value === 0) {           // 0 means "no reading" from the sensor
     $(`${key}Val`).textContent = "--";
     $(`${key}Pill`).textContent = value === 0 ? "No reading" : "Waiting";
@@ -146,7 +163,7 @@ function updateVital(key, value, level, text, decimals) {
   if (!card) return;
   card.classList.remove("warn", "danger");
   if (level && level !== "ok") card.classList.add(level);
-  $(`v-${key}-val`).textContent = value === null ? "--" : value.toFixed(decimals);
+  $(`v-${key}-val`).textContent = value !== null ? value.toFixed(decimals) : deviceIsOnline ? "--" : (0).toFixed(decimals);
   $(`v-${key}-pill`).textContent = text;
   const mark = $(`v-${key}-mark`);
   mark.hidden = value === null;
@@ -154,15 +171,27 @@ function updateVital(key, value, level, text, decimals) {
 
   // min / avg / max over the last hour (from the chart points)
   const vals = points.map((p) => p[key]).filter((n) => n !== null && n !== undefined);
-  const fmt = (n) => (vals.length ? n.toFixed(decimals) : "--");
+  const fmt = (n) => (!deviceIsOnline ? (0).toFixed(decimals) : vals.length ? n.toFixed(decimals) : "--");
   $(`v-${key}-min`).textContent = fmt(Math.min(...vals));
   $(`v-${key}-avg`).textContent = fmt(vals.reduce((a, b) => a + b, 0) / vals.length);
   $(`v-${key}-max`).textContent = fmt(Math.max(...vals));
 }
 
-function zoneLetter(text) {
-  const m = /zone\s*([abc])/i.exec(text || "");
-  return m ? m[1].toUpperCase() : null;
+// GPS position, or null when the Neo-6M has no fix (it sends 0,0 or nothing)
+function gpsFix(d) {
+  const lat = num(d[PIN.lat]), lng = num(d[PIN.lng]);
+  if (lat === null || lng === null || (lat === 0 && lng === 0)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+const coordText = (p) => (p ? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}` : "No GPS fix");
+
+// Distance in metres between two positions (haversine)
+function metres(a, b) {
+  const R = 6371e3, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 function setStatusPill(kind, text) {
@@ -170,38 +199,80 @@ function setStatusPill(kind, text) {
   $("statusText").textContent = text;
 }
 
-// LoRa signal: 5 bars, colour class on the parent
-function signalLevel(rssi) {
-  if (rssi === null) return { bars: 0, cls: "poor" };
-  const bars = rssi > -60 ? 5 : rssi > -70 ? 4 : rssi > -80 ? 3 : rssi > -90 ? 2 : 1;
-  return { bars, cls: bars >= 3 ? "" : bars === 2 ? "weak" : "poor" };
+// GPS quality from satellites in view: 5 bars, colour class on the parent
+function gpsLevel(sats, fix) {
+  if (!fix) return { bars: 0, cls: "poor", text: "No GPS fix – needs a clear view of the sky" };
+  if (sats === null) return { bars: 3, cls: "", text: "GPS fix (satellite count not sent)" };
+  const bars = sats >= 10 ? 5 : sats >= 8 ? 4 : sats >= 6 ? 3 : sats >= 4 ? 2 : 1;
+  return { bars, cls: bars >= 3 ? "" : bars === 2 ? "weak" : "poor",
+           text: ["", "Weak fix – position may jump", "Fair fix", "Good fix", "Very good fix", "Excellent fix"][bars] };
 }
-function setSignal(rssi) {
-  const { bars, cls } = signalLevel(rssi);
+function setGps(sats, fix) {
+  const { bars, cls, text } = gpsLevel(sats, fix);
   document.querySelectorAll("[data-bars]").forEach((el) => {
     [...el.children].forEach((b, i) => b.classList.toggle("on", i < bars));
     const holder = el.parentElement;
     holder.classList.remove("weak", "poor");
     if (cls) holder.classList.add(cls);
   });
-  const txt = rssi === null ? "--" : `${rssi} dBm`;
-  $("loraValLoc").textContent = txt;
-  $("qiSignal").textContent = txt;
-  $("locRssi").textContent = rssi === null ? "--" : rssi;
-  $("locQuality").textContent = rssi === null ? "No signal reading"
-    : ["", "Poor – link may drop", "Weak", "Fair", "Good", "Excellent"][bars] + " signal";
+  const satTxt = sats === null ? "--" : String(sats);
+  $("satValLoc").textContent = satTxt;
+  $("qiSats").textContent = satTxt;
+  $("locSats").textContent = satTxt;
+  $("locQuality").textContent = text;
+
+  $("ovFix").textContent = fix ? "GPS locked" : "No GPS fix";
+  $("ovCoords").textContent = fix ? coordText(fix) : "Waiting for satellites…";
+  $("qiLoc").textContent = fix ? coordText(fix) : "--";
+  $("sideLoc").textContent = fix ? coordText(fix) : "No GPS fix";
+  $("locLat").textContent = fix ? `${fix.lat.toFixed(6)}°` : "--";
+  $("locLng").textContent = fix ? `${fix.lng.toFixed(6)}°` : "--";
+  if (fix) $("locFixTime").textContent = clock();
+  $("mapEmpty").hidden = !!fix;
+  const gm = $("gmapsLink");
+  gm.hidden = !fix;
+  if (fix) gm.href = `https://www.google.com/maps?q=${fix.lat},${fix.lng}`;
 }
 
-let lastZoneName = "--";
-let lastUpdate = 0;
+// ---------- Maps (Leaflet + OpenStreetMap tiles, darkened in style.css) ----------
+const maps = {};
+function makeMap(id, opts) {
+  if (!window.L) return null;
+  const m = L.map(id, { zoomControl: opts.zoom, scrollWheelZoom: false }).setView([12.9237, 77.4987], 16);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(m);
+  const trail = opts.trail ? L.polyline([], { color: "#08a9ff", weight: 3, opacity: .7 }).addTo(m) : null;
+  const marker = L.circleMarker([0, 0], { radius: 9, color: "#fff", weight: 2, fillColor: "#ffba16", fillOpacity: 1 });
+  return { m, marker, trail, centred: false };
+}
+function initMaps() {
+  maps.ov = makeMap("ovMap", { zoom: false });
+  maps.loc = makeMap("locMap", { zoom: true, trail: true });
+}
+function updateMaps(fix, alert) {
+  Object.values(maps).forEach((mp) => {
+    if (!mp) return;
+    if (mp.trail) mp.trail.setLatLngs(posLog.slice().reverse().map((p) => [p.lat, p.lng]));
+    if (!fix) { mp.marker.remove(); return; }
+    mp.marker.setLatLng([fix.lat, fix.lng]).setStyle({ fillColor: alert ? "#ff1744" : "#ffba16" }).addTo(mp.m);
+    // the small map always follows W01; the big one centres once, then lets the user pan around
+    if (!mp.centred || !mp.trail) { mp.m.setView([fix.lat, fix.lng], mp.centred ? mp.m.getZoom() : 17); mp.centred = true; }
+  });
+}
 
-function render(d) {
+let lastLocText = "location unknown";
+let lastUpdate = 0;
+let deviceIsOnline = true;   // false while Blynk says the wearable isn't connected
+
+function render(d, online = true) {
+  deviceIsOnline = online;
   const hr = num(d[PIN.hr]), spo2 = num(d[PIN.spo2]), temp = num(d[PIN.temp]), hum = num(d[PIN.hum]);
   const sos = num(d[PIN.sos]) === 1, fall = num(d[PIN.fall]) === 1;
-  const rssi = num(d[PIN.lora]);
+  const fix = gpsFix(d), sats = num(d[PIN.sats]);
   const status = String(d[PIN.status] ?? "");
-  const zone = zoneLetter(String(d[PIN.zone] ?? ""));
-  const zoneName = zone ? `Zone ${zone}` : "Unknown zone";
+  const locText = fix ? coordText(fix) : "location unknown";
   const alert = sos || fall;
   const noSignal = /no signal/i.test(status);
 
@@ -211,12 +282,14 @@ function render(d) {
   $("agoText").textContent = "(0s ago)";
   $("qiUpdated").textContent = clock();
   $("wifiIcon").className = "hicon ok";
-  if (alert) setStatusPill("alert", sos ? "SOS Alert" : "Fall Alert");
+  if (!online) setStatusPill("offline", "Device offline");
+  else if (alert) setStatusPill("alert", sos ? "SOS Alert" : "Fall Alert");
   else if (noSignal) setStatusPill("nosignal", "No signal");
   else setStatusPill("online", DEMO ? "Online (demo)" : "Online");
 
-  // Chart points first, so the 1-hour min/avg/max include this reading
-  addPoint(hr, temp, spo2, hum);
+  // Chart points first, so the 1-hour min/avg/max include this reading.
+  // Nothing is recorded while the device is offline (Blynk only has old values then).
+  if (online) addPoint(hr, temp, spo2, hum); else drawChart();
 
   // Gauges
   setGauge("hr", hr);
@@ -226,10 +299,10 @@ function render(d) {
 
   // Banners
   $("sosBanner").classList.toggle("active", sos);
-  $("sosTitle").textContent = sos ? `SOS from ${WORKER} – ${zoneName}` : "No SOS";
+  $("sosTitle").textContent = sos ? `SOS from ${WORKER} – ${locText}` : "No SOS";
   $("sosSub").textContent = sos ? "Emergency button pressed. Dispatch help now." : "All clear";
   $("fallBanner").classList.toggle("active", fall);
-  $("fallTitle").textContent = fall ? `Fall detected – ${zoneName}` : "No fall detected";
+  $("fallTitle").textContent = fall ? `Fall detected – ${locText}` : "No fall detected";
   $("fallSub").textContent = fall ? `${WORKER} may be injured. Check immediately.` : "All clear";
 
   // Status tiles
@@ -239,60 +312,50 @@ function render(d) {
   $("fallPill").textContent = fall ? "ON" : "OFF";
   document.querySelectorAll(".js-help").forEach((b) => b.classList.toggle("urgent", alert));
 
-  // Location strip (overview + location page), tunnel view, quick info
-  document.querySelectorAll(".zone-sec, .zone-info > div, .zb").forEach((z) => z.classList.toggle("active", z.dataset.zone === zone));
-  document.querySelector(".zone-bar").classList.toggle("alert", alert);
-  $("ovZone").textContent = zone ? zoneName : "Unknown";
-  $("ovZoneDesc").textContent = zone ? { A: "Near hub", B: "Mid range", C: "Far range – furthest from help" }[zone] : "Zone not reported";
-  document.querySelectorAll(".tunnel-strip").forEach((s) => s.classList.toggle("alert", alert));
-  document.querySelectorAll(".avatar").forEach((a) => {
-    a.hidden = !zone;
-    if (zone) a.style.left = { A: "16.66%", B: "50%", C: "83.33%" }[zone];
-  });
-  $("qiZone").textContent = zone ? zoneName : "--";
+  // GPS location (overview card, location page, quick info, maps)
   $("qiStatus").textContent = status || "--";
-  $("locZone").textContent = zone ? zoneName : "--";
-  $("sideZone").textContent = zone ? zoneName : "Zone --";
-  $("sideWorker").className = `side-worker ${alert ? "alert" : noSignal ? "nosignal" : "online"}`;
+  $("sideWorker").className = `side-worker ${!online ? "offline" : alert ? "alert" : noSignal ? "nosignal" : "online"}`;
   $("navAlertDot").hidden = !alert;
-  lastZoneName = zoneName;
-  setSignal(rssi);
-  trackZone(zone, rssi);
+  lastLocText = locText;
+  setGps(sats, fix);
+  trackPosition(fix);
+  updateMaps(fix, alert);
   renderPins(d);
 
   // Alert history
-  trackAlerts(sos, fall, zoneName);
+  trackAlerts(sos, fall, locText);
 }
 
-// ---------- Location page: log every zone change ----------
-let zoneLog = load("zones", []);
-function trackZone(zone, rssi) {
-  if (!zone) return;
-  const last = zoneLog[0];
-  if (!last || last.to !== zone) {
-    zoneLog.unshift({ time: Date.now(), from: last ? last.to : null, to: zone, rssi });
-    zoneLog = zoneLog.slice(0, 100);
-    save("zones", zoneLog);
-    renderZoneLog();
-  }
+// ---------- Location page: log a position each time W01 moves 10 m or more ----------
+const MOVE_M = 10;
+let posLog = load("positions", []);
+function trackPosition(fix) {
+  if (!fix) return;
+  const last = posLog[0];
+  const moved = last ? metres(last, fix) : null;
+  if (last && moved < MOVE_M) return;
+  posLog.unshift({ time: Date.now(), lat: fix.lat, lng: fix.lng, moved });
+  posLog = posLog.slice(0, 200);
+  save("positions", posLog);
+  renderPosLog();
 }
-function renderZoneLog() {
-  $("locSince").textContent = zoneLog.length ? clock(new Date(zoneLog[0].time)) : "--";
-  $("zoneBody").innerHTML = zoneLog.length
-    ? zoneLog.map((z) => `<tr>
-        <td>${clock(new Date(z.time))}</td>
-        <td>${z.from ? `Zone ${z.from}` : "—"}</td>
-        <td><strong>Zone ${z.to}</strong></td>
-        <td>${z.rssi ?? "--"} dBm</td>
+const distText = (m) => (m === null ? "—" : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`);
+function renderPosLog() {
+  $("posBody").innerHTML = posLog.length
+    ? posLog.slice(0, 50).map((p) => `<tr>
+        <td>${clock(new Date(p.time))}</td>
+        <td>${p.lat.toFixed(6)}</td>
+        <td>${p.lng.toFixed(6)}</td>
+        <td>${distText(p.moved)}</td>
       </tr>`).join("")
-    : '<tr class="empty"><td colspan="4">No movement recorded yet</td></tr>';
+    : '<tr class="empty"><td colspan="4">No positions recorded yet</td></tr>';
 }
 
 // ---------- Device page: raw Blynk datastreams ----------
 const PIN_INFO = {
   status: "Device message", hr: "Heart rate (bpm)", spo2: "SpO₂ (%)", temp: "Temperature (°C)",
-  hum: "Humidity (%)", fall: "Fall detected (0/1)", sos: "SOS pressed (0/1)", zone: "Zone (from LoRa)",
-  help: "Help dispatched (0/1)", lora: "LoRa RSSI (dBm)",
+  hum: "Humidity (%)", fall: "Fall detected (0/1)", sos: "SOS pressed (0/1)",
+  help: "Help dispatched (0/1)", lat: "GPS latitude (°)", lng: "GPS longitude (°)", sats: "GPS satellites in view",
 };
 function renderPins(d) {
   $("pinBody").innerHTML = Object.entries(PIN).map(([k, pin]) =>
@@ -311,12 +374,12 @@ let alertLog = load("history", []);
 let prev = { sos: false, fall: false };
 let alertFilter = "all";
 
-function trackAlerts(sos, fall, zoneName) {
+function trackAlerts(sos, fall, locText) {
   for (const type of ["sos", "fall"]) {
     const now = type === "sos" ? sos : fall;
     const alreadyOpen = alertLog.some((h) => h.type === type && !h.resolved);
     if (now && !prev[type] && !alreadyOpen) {
-      alertLog.unshift({ time: Date.now(), type, zone: zoneName, resolved: false });
+      alertLog.unshift({ time: Date.now(), type, loc: locText, resolved: false });
       alertLog = alertLog.slice(0, 200);
       save("history", alertLog);
       renderHistory();
@@ -334,13 +397,14 @@ function resolveAlerts() {
 
 const typeCell = (h) => `<td class="t-${h.type}">${h.type === "sos" ? "SOS" : "Fall"}</td>`;
 const resolvedCell = (h) => `<td class="${h.resolved ? "r-yes" : "r-no"}">${h.resolved ? "Yes" : "No"}</td>`;
+const placeOf = (h) => h.loc ?? h.zone ?? "--";   // older entries saved a zone instead
 const day = (t) => new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 function renderHistory() {
   // Overview card: latest 5
   const recent = alertLog.slice(0, 5);
   $("historyBody").innerHTML = recent.length
-    ? recent.map((h) => `<tr><td>${clock(new Date(h.time))}</td>${typeCell(h)}<td>${esc(h.zone)}</td>${resolvedCell(h)}</tr>`).join("")
+    ? recent.map((h) => `<tr><td>${clock(new Date(h.time))}</td>${typeCell(h)}<td>${esc(placeOf(h))}</td>${resolvedCell(h)}</tr>`).join("")
     : '<tr class="empty"><td colspan="4">No alerts yet</td></tr>';
 
   // Alert History page: everything, filtered
@@ -348,7 +412,7 @@ function renderHistory() {
     alertFilter === "all" ? true : alertFilter === "open" ? !h.resolved : h.type === alertFilter);
   $("alertsBody").innerHTML = rows.length
     ? rows.map((h) => `<tr class="${h.resolved ? "" : "open"}">
-        <td>${day(h.time)}</td><td>${clock(new Date(h.time))}</td>${typeCell(h)}<td>${esc(h.zone)}</td>${resolvedCell(h)}
+        <td>${day(h.time)}</td><td>${clock(new Date(h.time))}</td>${typeCell(h)}<td>${esc(placeOf(h))}</td>${resolvedCell(h)}
         <td>${h.resolvedAt ? clock(new Date(h.resolvedAt)) : "—"}</td>
       </tr>`).join("")
     : `<tr class="empty"><td colspan="6">${alertLog.length ? "No alerts match this filter" : "No alerts yet"}</td></tr>`;
@@ -372,8 +436,8 @@ document.querySelectorAll("[data-filter]").forEach((btn) => {
 });
 
 $("exportCsv").addEventListener("click", () => {
-  const lines = [["Date", "Time", "User", "Type", "Zone", "Resolved", "Resolved at"]].concat(
-    alertLog.map((h) => [day(h.time), clock(new Date(h.time)), WORKER, h.type === "sos" ? "SOS" : "Fall", h.zone,
+  const lines = [["Date", "Time", "User", "Type", "Location", "Resolved", "Resolved at"]].concat(
+    alertLog.map((h) => [day(h.time), clock(new Date(h.time)), WORKER, h.type === "sos" ? "SOS" : "Fall", placeOf(h),
       h.resolved ? "Yes" : "No", h.resolvedAt ? clock(new Date(h.resolvedAt)) : ""]));
   const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = document.createElement("a");
@@ -386,7 +450,9 @@ $("exportCsv").addEventListener("click", () => {
 // =====================================================================
 // 6) Live chart (heart rate + temperature, last 15 min or 1 hour)
 // =====================================================================
-let points = load("points", []).filter((p) => Date.now() - p.t < 3600e3);
+// "vitals" replaced the old "points" key, which held stale values recorded while the device was offline
+try { localStorage.removeItem(STORE + "points"); } catch { /* storage blocked – ignore */ }
+let points = load("vitals", []).filter((p) => Date.now() - p.t < 3600e3);
 let rangeMin = 15;
 let lastSaved = 0;
 
@@ -483,7 +549,7 @@ function addPoint(hr, temp, spo2, hum) {
   const t = Date.now();
   points.push({ t, hr: hr || null, temp: temp || null, spo2: spo2 || null, hum: hum || null });
   points = points.filter((p) => t - p.t < 3600e3);
-  if (t - lastSaved > 10000) { save("points", points); lastSaved = t; }  // save every 10 s
+  if (t - lastSaved > 10000) { save("vitals", points); lastSaved = t; }  // save every 10 s
   drawChart();
 }
 
@@ -497,7 +563,7 @@ function setSeries(c, from, series) {
 
 function chartStats(el, vals, decimals, unit) {
   const ok = vals.filter((v) => v !== null);
-  const f = (n) => (ok.length ? `${n.toFixed(decimals)} ${unit}` : "--");
+  const f = (n) => (!deviceIsOnline ? `${(0).toFixed(decimals)} ${unit}` : ok.length ? `${n.toFixed(decimals)} ${unit}` : "--");
   el.innerHTML = [["Now", ok[ok.length - 1]], ["Min", Math.min(...ok)],
     ["Avg", ok.reduce((a, b) => a + b, 0) / ok.length], ["Max", Math.max(...ok)]]
     .map(([k, v]) => `<div><span>${k}</span><strong>${f(v)}</strong></div>`).join("");
@@ -554,7 +620,7 @@ async function dispatchHelp() {
       setTimeout(() => writeBlynk({ [PIN.help]: 0 }).catch(() => {}), 3000);   // reset switch like a button
     }
     resolveAlerts();
-    showHelpToast(`Help has been dispatched to ${WORKER} – ${lastZoneName}`, "Team is on the way.");
+    showHelpToast(`Help has been dispatched to ${WORKER} – ${lastLocText}`, "Team is on the way.");
   } catch (err) {
     showHelpToast("Could not reach Blynk", err.message, true);
   } finally {
@@ -583,6 +649,7 @@ function showPage() {
   setMenu(false);
   drawChart();
   [chart, hrChart, tempChart].forEach((c) => c && c.resize());
+  Object.values(maps).forEach((mp) => mp && mp.m.invalidateSize());   // Leaflet needs this after being hidden
 }
 window.addEventListener("hashchange", () => { showPage(); window.scrollTo(0, 0); });
 
@@ -592,6 +659,21 @@ document.querySelectorAll("[data-jump]").forEach((a) => a.addEventListener("clic
   if (location.hash !== "#overview") { history.pushState(null, "", "#overview"); showPage(); }
   $(a.dataset.jump).scrollIntoView({ behavior: "smooth", block: "center" });
 }));
+
+// Profile button in the header opens a small menu with the user's current info
+const profileBtn = $("profileBtn"), profileMenu = $("profileMenu");
+function setProfile(open) {
+  profileMenu.hidden = !open;
+  profileBtn.setAttribute("aria-expanded", open);
+  if (!open) return;
+  $("pmStatus").textContent = $("statusText").textContent;
+  $("pmLoc").textContent = $("qiLoc").textContent;
+  $("pmUpdated").textContent = $("lastUpdated").textContent;
+}
+profileBtn.addEventListener("click", (e) => { e.stopPropagation(); setProfile(profileMenu.hidden); });
+profileMenu.addEventListener("click", (e) => { if (e.target.closest("a")) setProfile(false); });
+document.addEventListener("click", (e) => { if (!profileMenu.hidden && !profileMenu.contains(e.target)) setProfile(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !profileMenu.hidden) { setProfile(false); profileBtn.focus(); } });
 
 // Phone / tablet: sidebar slides in from the left
 function setMenu(open) {
@@ -609,9 +691,9 @@ $("clearHistory").addEventListener("click", () => {
   alertLog = []; save("history", alertLog); renderHistory();
 });
 $("clearChart").addEventListener("click", () => {
-  if (!confirm("Delete the saved chart data and zone movements?")) return;
-  points = []; zoneLog = []; save("points", points); save("zones", zoneLog);
-  drawChart(); renderZoneLog();
+  if (!confirm("Delete the saved chart data and position log?")) return;
+  points = []; posLog = []; save("vitals", points); save("positions", posLog);
+  drawChart(); renderPosLog(); updateMaps(null, false);
 });
 
 // =====================================================================
@@ -620,8 +702,11 @@ $("clearChart").addEventListener("click", () => {
 const stats = { ok: 0, fail: 0 };
 async function poll() {
   try {
-    const data = DEMO ? demoData() : await readBlynk();
-    render(data);
+    const [raw, online] = DEMO ? [demoData(), true] : await Promise.all([readBlynk(), deviceOnline()]);
+    let data = raw;
+    // device offline: Blynk's stored values are old, so show only the status message, no readings
+    if (!online) data = { [PIN.status]: data[PIN.status] };
+    render(data, online);
     stats.ok++;
     $("devLast").textContent = clock();
   } catch (err) {
@@ -643,6 +728,7 @@ $("setupNote").hidden = !DEMO;
 $("devMode").textContent = DEMO ? "Demo (made-up data)" : "Live – Blynk";
 $("devToken").textContent = DEMO ? "not set" : `••••••${BLYNK_TOKEN.slice(-4)}`;
 renderHistory();
-renderZoneLog();
+renderPosLog();
+initMaps();
 showPage();
 poll();

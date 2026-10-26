@@ -2,9 +2,9 @@
 
 A web dashboard for a **personalized, context-aware wearable health monitoring system** (Sem 3 EL).
 
-A wearable (ESP32) measures heart rate, SpO₂, temperature, humidity and motion (falls), and has an SOS button.
-Readings travel over **LoRa** to a base station, which uploads them to **Blynk IoT** (server BLR1).
-This dashboard reads Blynk every 2 seconds and shows live vitals, alerts, zone and charts.
+A wearable (ESP32) measures heart rate, SpO₂, temperature, humidity and motion (falls), has an SOS button,
+and gets its position from a **Neo-6M GPS** module. It uploads everything over Wi-Fi to **Blynk IoT** (server BLR1).
+This dashboard reads Blynk every 2 seconds and shows live vitals, alerts, a live GPS map and charts.
 
 ## Run it
 
@@ -36,6 +36,12 @@ Without a token the page runs in **demo mode** with made-up data.
 | V4 | Humidity (%) |
 | V5 | Fall (0/1) |
 | V6 | SOS (0/1) |
-| V9 | Location zone (string, from LoRa RSSI) |
 | V10 | Help dispatched (0/1) |
-| V11 | LoRa signal (dBm) |
+| V11 | GPS latitude (decimal degrees, e.g. `12.923700`) |
+| V12 | GPS longitude (decimal degrees, e.g. `77.498700`) |
+| V13 | GPS satellites in view (number, optional) |
+
+When the Neo-6M has no fix, send `0` for both latitude and longitude (or nothing) and the dashboard shows "No GPS fix".
+In the firmware (TinyGPS++), send `gps.location.lat()` / `gps.location.lng()` with 6 decimals and `gps.satellites.value()`.
+
+The maps use OpenStreetMap tiles through [Leaflet](https://leafletjs.com/), so no API key is needed.
