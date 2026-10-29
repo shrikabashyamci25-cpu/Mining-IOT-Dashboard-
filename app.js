@@ -17,7 +17,11 @@ const PIN = {
   status: "V0", hr: "V1", spo2: "V2", temp: "V3", hum: "V4",
   fall: "V5", sos: "V6", help: "V10",
   lat: "V11", lng: "V12", sats: "V13",   // Neo-6M GPS
+  beat: "V9",                            // counter the wearable bumps every 2 s
 };
+// Blynk can take a minute to notice a device is gone, so the dashboard also treats the
+// wearable as offline as soon as its heartbeat counter stops changing for this long
+const STALE_MS = 6000;
 
 const DEMO = !BLYNK_TOKEN || BLYNK_TOKEN.startsWith("PASTE_");
 
@@ -179,8 +183,11 @@ function updateVital(key, value, level, text, decimals) {
 
 // GPS position, or null when the Neo-6M has no fix (it sends 0,0 or nothing)
 function gpsFix(d) {
-  const lat = num(d[PIN.lat]), lng = num(d[PIN.lng]);
-  if (lat === null || lng === null || (lat === 0 && lng === 0)) return null;
+  // The wearable sends "lat,lng" together on V12 (a String datastream), because V11 is a whole-number
+  // datastream in the Blynk template and drops the decimals. A plain number on V12 is the old format.
+  const both = String(d[PIN.lng] ?? "").split(",");
+  const lat = num(both.length === 2 ? both[0] : d[PIN.lat]), lng = num(both.length === 2 ? both[1] : d[PIN.lng]);
+  if (lat === null || lng === null || lat === 0 || lng === 0) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { lat, lng };
 }
@@ -355,7 +362,8 @@ function renderPosLog() {
 const PIN_INFO = {
   status: "Device message", hr: "Heart rate (bpm)", spo2: "SpO₂ (%)", temp: "Temperature (°C)",
   hum: "Humidity (%)", fall: "Fall detected (0/1)", sos: "SOS pressed (0/1)",
-  help: "Help dispatched (0/1)", lat: "GPS latitude (°)", lng: "GPS longitude (°)", sats: "GPS satellites in view",
+  help: "Help dispatched (0/1)", lat: "GPS latitude (°)", lng: "GPS position (lat,lng)", sats: "GPS satellites in view",
+  beat: "Heartbeat counter",
 };
 function renderPins(d) {
   $("pinBody").innerHTML = Object.entries(PIN).map(([k, pin]) =>
@@ -700,9 +708,19 @@ $("clearChart").addEventListener("click", () => {
 // 9) Main loop – poll Blynk every 2 s
 // =====================================================================
 const stats = { ok: 0, fail: 0 };
+let lastBeat, beatChangedAt = 0;
+// Online only while Blynk says so AND the heartbeat counter is still moving
+function stillBeating(beat) {
+  if (beat === undefined || beat === null) return true;   // firmware without a heartbeat: trust Blynk
+  if (beat !== lastBeat) { lastBeat = beat; beatChangedAt = Date.now(); }   // first reading counts as fresh
+  return Date.now() - beatChangedAt < STALE_MS;
+}
+
 async function poll() {
   try {
-    const [raw, online] = DEMO ? [demoData(), true] : await Promise.all([readBlynk(), deviceOnline()]);
+    const [raw, blynkOnline] = DEMO ? [demoData(), true] : await Promise.all([readBlynk(), deviceOnline()]);
+    const beating = DEMO || stillBeating(raw[PIN.beat]);
+    const online = blynkOnline && beating;
     let data = raw;
     // device offline: Blynk's stored values are old, so show only the status message, no readings
     if (!online) data = { [PIN.status]: data[PIN.status] };
