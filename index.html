@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="style.css?v=9" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -58,7 +58,7 @@
       <div class="head-info">
         <div class="head-item">
           <i data-lucide="user-round" class="muted-ic"></i>
-          <div><span class="lbl">User ID</span><strong>W01</strong></div>
+          <div><span class="lbl">User ID</span><strong class="js-wid">W01</strong></div>
         </div>
         <span class="pill-status online" id="statusPill"><span class="dot"></span><span id="statusText">Connecting…</span></span>
         <div class="head-item">
@@ -76,7 +76,7 @@
           <div class="profile-menu glass" id="profileMenu" hidden>
             <div class="pm-head">
               <span class="pm-avatar"><i data-lucide="user-round"></i></span>
-              <div><strong>User W01</strong><span>Wrist unit · Blynk IoT</span></div>
+              <div><strong class="js-wearer">User W01</strong><span>Wrist unit · Blynk IoT</span></div>
             </div>
             <dl class="pm-info">
               <div><dt>Status</dt><dd id="pmStatus">--</dd></div>
@@ -101,6 +101,7 @@
       <nav class="nav">
         <a href="#overview" data-nav="overview"><i data-lucide="layout-dashboard"></i><span>Overview</span><b class="nav-dot" id="navAlertDot" hidden></b></a>
         <a href="#vitals" data-nav="vitals"><i data-lucide="heart-pulse"></i><span>Vital Signs</span></a>
+        <a href="#wearables" data-nav="wearables"><i data-lucide="watch"></i><span>Wearables</span><b class="nav-badge live" id="navLive" hidden>0</b></a>
         <a href="#location" data-nav="location"><i data-lucide="map-pin"></i><span>Location</span></a>
         <a href="#charts" data-nav="charts"><i data-lucide="chart-line"></i><span>Live Charts</span></a>
         <a href="#alerts" data-nav="alerts"><i data-lucide="bell-ring"></i><span>Alert History</span><b class="nav-badge" id="navBadge" hidden>0</b></a>
@@ -111,7 +112,7 @@
       </nav>
       <div class="side-worker" id="sideWorker">
         <span class="sw-ic"><i data-lucide="watch"></i></span>
-        <div><strong>User W01</strong><span id="sideLoc">GPS --</span></div>
+        <div><strong class="js-wearer">User W01</strong><span id="sideLoc">GPS --</span></div>
         <span class="sw-dot" title="Connection"></span>
       </div>
     </aside>
@@ -261,7 +262,7 @@
       <article class="span-4 glass card">
         <header class="card-head"><div class="title"><i data-lucide="settings" class="ic-blue"></i><h2>Quick Info</h2></div></header>
         <ul class="quick">
-          <li><i data-lucide="user-round"></i><span>User ID</span><strong>W01</strong></li>
+          <li><i data-lucide="user-round"></i><span>User ID</span><strong class="js-wid">W01</strong></li>
           <li><i data-lucide="map-pin"></i><span>Location</span><strong id="qiLoc">--</strong></li>
           <li><i data-lucide="clock"></i><span>Last Updated</span><strong id="qiUpdated">--</strong></li>
           <li><i data-lucide="satellite"></i><span>GPS Satellites</span><strong class="sig-val"><span class="bars" data-bars><i></i><i></i><i></i><i></i><i></i></span><span id="qiSats">--</span></strong></li>
@@ -277,7 +278,7 @@
          ================================================================ -->
     <div class="page" data-page="vitals" hidden>
       <div class="page-head">
-        <div><h2>Vital Signs</h2><p>Live readings from W01's wearable, refreshed every 2 seconds. Green = normal · Amber = check · Red = danger.</p></div>
+        <div><h2>Vital Signs</h2><p>Live readings from <span class="js-wid">W01</span>'s wearable, refreshed every 2 seconds. Green = normal · Amber = check · Red = danger.</p></div>
       </div>
       <!-- cards are built by app.js (VITALS list) -->
       <section class="vitals-grid" id="vitalsGrid"></section>
@@ -299,11 +300,77 @@
     </div>
 
     <!-- ================================================================
+         PAGE: WEARABLES (the whole fleet; the one prototype acts as any of them)
+         ================================================================ -->
+    <div class="page" data-page="wearables" hidden>
+      <div class="page-head">
+        <div><h2>Wearables</h2><p>Every wearable in the system and the person wearing it. There is one physical prototype for now: choose which wearable it is acting as, and its live readings are saved to that wearable. Saved in this browser.</p></div>
+        <div class="page-actions">
+          <button class="btn" id="wbExport"><i data-lucide="download"></i> Export CSV</button>
+          <button class="btn" id="wbBackup"><i data-lucide="hard-drive-download"></i> Backup</button>
+          <label class="btn" for="wbRestore"><i data-lucide="hard-drive-upload"></i> Restore</label>
+          <input type="file" id="wbRestore" accept=".json,application/json" hidden />
+        </div>
+      </div>
+
+      <section class="stat-row">
+        <div class="glass stat"><span>Wearables</span><strong id="wbTotal">0</strong></div>
+        <div class="glass stat s-green"><span>Live now</span><strong id="wbLive">0</strong></div>
+        <div class="glass stat"><span>Last reading normal</span><strong id="wbOk">0</strong></div>
+        <div class="glass stat s-amber"><span>Need a check</span><strong id="wbCheck">0</strong></div>
+      </section>
+
+      <section class="grid">
+        <article class="span-8 glass card proto-card" id="protoCard">
+          <header class="card-head">
+            <div class="title"><i data-lucide="cpu" class="ic-green"></i><h2>Prototype device</h2></div>
+            <span class="state-pill" id="protoPill">Connecting…</span>
+          </header>
+          <div class="rec-controls">
+            <label class="field"><span>The prototype is acting as</span><select id="protoAs"></select></label>
+          </div>
+          <div class="rec-live">
+            <div><span>Heart rate</span><strong id="protoHr">--</strong><small>bpm</small></div>
+            <div><span>SpO₂</span><strong id="protoSpo2">--</strong><small>%</small></div>
+            <div><span>Readings saved</span><strong id="protoCount">0</strong><small>for this wearable</small></div>
+            <div><span>Last reading</span><strong id="protoLast">--</strong><small id="protoLastDay">&nbsp;</small></div>
+          </div>
+          <p class="hint" id="protoHint"></p>
+        </article>
+
+        <article class="span-4 glass card">
+          <header class="card-head"><div class="title"><i data-lucide="watch" class="ic-blue"></i><h2>Add a wearable</h2></div></header>
+          <form id="wbForm" class="pp-form">
+            <label class="field"><span>Wearable ID</span><input id="wbId" required maxlength="12" autocomplete="off" /></label>
+            <label class="field"><span>Worn by</span><input id="wbName" required maxlength="40" placeholder="e.g. Priya" autocomplete="off" /></label>
+            <label class="field"><span>Age <em>(optional)</em></span><input id="wbAge" type="number" min="1" max="120" inputmode="numeric" /></label>
+            <button class="btn" type="submit"><i data-lucide="plus"></i> Add wearable</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="people-grid" id="wearGrid"></section>
+
+      <article class="glass card" id="wearDetail">
+        <header class="card-head">
+          <div class="title"><i data-lucide="chart-line" class="ic-purple"></i><h2 id="wdTitle">Readings</h2></div>
+          <select id="wdPick" class="select-sm" aria-label="Show readings for"></select>
+        </header>
+        <div class="legend">
+          <span><i class="lg green"></i>Heart rate (bpm)</span>
+          <span><i class="lg blue"></i>SpO₂ (%)</span>
+        </div>
+        <div class="chart-stats" id="wdStats"></div>
+        <div class="chart-wrap tall"><canvas id="wdChart"></canvas><p class="map-empty" id="wdEmpty">No readings yet</p></div>
+      </article>
+    </div>
+
+    <!-- ================================================================
          PAGE: LOCATION
          ================================================================ -->
     <div class="page" data-page="location" hidden>
       <div class="page-head">
-        <div><h2>Location</h2><p>Live position from W01's Neo-6M GPS module. It needs a clear view of the sky, so it may lose its fix indoors.</p></div>
+        <div><h2>Location</h2><p>Live position from <span class="js-wid">W01</span>'s Neo-6M GPS module. It needs a clear view of the sky, so it may lose its fix indoors.</p></div>
       </div>
 
       <section class="grid">
@@ -334,7 +401,7 @@
 
       <article class="glass card">
         <header class="card-head"><div class="title"><i data-lucide="footprints" class="ic-blue"></i><h2>Position log</h2></div>
-          <span class="muted small">A new row each time W01 moves 10 m or more</span></header>
+          <span class="muted small">A new row each time <span class="js-wid">W01</span> moves 10 m or more</span></header>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Time</th><th>Latitude</th><th>Longitude</th><th>Moved</th></tr></thead>
@@ -349,7 +416,7 @@
          ================================================================ -->
     <div class="page" data-page="charts" hidden>
       <div class="page-head">
-        <div><h2>Live Charts</h2><p>Heart rate and temperature for W01. Shaded band = normal range.</p></div>
+        <div><h2>Live Charts</h2><p>Heart rate and temperature for <span class="js-wid">W01</span>. Shaded band = normal range.</p></div>
         <div class="seg" role="group" aria-label="Chart range">
           <button class="active" data-range="15">15 min</button>
           <button data-range="60">1 hour</button>
@@ -374,7 +441,7 @@
          ================================================================ -->
     <div class="page" data-page="alerts" hidden>
       <div class="page-head">
-        <div><h2>Alert History</h2><p>Every SOS and fall event from W01, saved in this browser.</p></div>
+        <div><h2>Alert History</h2><p>Every SOS and fall event from the wearables, saved in this browser.</p></div>
         <div class="page-actions">
           <button class="btn" id="exportCsv"><i data-lucide="download"></i> Export CSV</button>
           <button class="help-btn js-help compact" id="helpBtn2"><i data-lucide="ambulance"></i><span>Help Dispatched</span></button>
@@ -400,8 +467,8 @@
         </header>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Location</th><th>Resolved</th><th>Resolved at</th></tr></thead>
-            <tbody id="alertsBody"><tr class="empty"><td colspan="6">No alerts yet</td></tr></tbody>
+            <thead><tr><th>Date</th><th>Time</th><th>Wearable</th><th>Type</th><th>Location</th><th>Resolved</th><th>Resolved at</th></tr></thead>
+            <tbody id="alertsBody"><tr class="empty"><td colspan="7">No alerts yet</td></tr></tbody>
           </table>
         </div>
       </article>
@@ -475,6 +542,6 @@
 
   <!-- config.js holds your private Blynk token and is not committed to git. See config.example.js -->
   <script src="config.js?v=7"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

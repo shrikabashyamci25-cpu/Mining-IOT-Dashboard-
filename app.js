@@ -10,7 +10,7 @@ const BLYNK_TOKEN = window.BLYNK_TOKEN || "PASTE_YOUR_TOKEN_HERE";
 
 const BLYNK_SERVER = "https://blr1.blynk.cloud/external/api";
 const POLL_MS = 2000;            // ask Blynk for new values every 2 s
-const WORKER = "W01";
+let WORKER = "W01";   // the wearable the prototype is acting as (set on the Wearables page)
 
 // Datastream pins (must match the Blynk template)
 const PIN = {
@@ -387,7 +387,7 @@ function trackAlerts(sos, fall, locText) {
     const now = type === "sos" ? sos : fall;
     const alreadyOpen = alertLog.some((h) => h.type === type && !h.resolved);
     if (now && !prev[type] && !alreadyOpen) {
-      alertLog.unshift({ time: Date.now(), type, loc: locText, resolved: false });
+      alertLog.unshift({ time: Date.now(), wid: WORKER, type, loc: locText, resolved: false });
       alertLog = alertLog.slice(0, 200);
       save("history", alertLog);
       renderHistory();
@@ -420,10 +420,10 @@ function renderHistory() {
     alertFilter === "all" ? true : alertFilter === "open" ? !h.resolved : h.type === alertFilter);
   $("alertsBody").innerHTML = rows.length
     ? rows.map((h) => `<tr class="${h.resolved ? "" : "open"}">
-        <td>${day(h.time)}</td><td>${clock(new Date(h.time))}</td>${typeCell(h)}<td>${esc(placeOf(h))}</td>${resolvedCell(h)}
+        <td>${day(h.time)}</td><td>${clock(new Date(h.time))}</td><td>${esc(h.wid ?? "W01")}</td>${typeCell(h)}<td>${esc(placeOf(h))}</td>${resolvedCell(h)}
         <td>${h.resolvedAt ? clock(new Date(h.resolvedAt)) : "—"}</td>
       </tr>`).join("")
-    : `<tr class="empty"><td colspan="6">${alertLog.length ? "No alerts match this filter" : "No alerts yet"}</td></tr>`;
+    : `<tr class="empty"><td colspan="7">${alertLog.length ? "No alerts match this filter" : "No alerts yet"}</td></tr>`;
 
   // Counters + sidebar badge
   const open = alertLog.filter((h) => !h.resolved).length;
@@ -443,16 +443,21 @@ document.querySelectorAll("[data-filter]").forEach((btn) => {
   });
 });
 
-$("exportCsv").addEventListener("click", () => {
-  const lines = [["Date", "Time", "User", "Type", "Location", "Resolved", "Resolved at"]].concat(
-    alertLog.map((h) => [day(h.time), clock(new Date(h.time)), WORKER, h.type === "sos" ? "SOS" : "Fall", placeOf(h),
-      h.resolved ? "Yes" : "No", h.resolvedAt ? clock(new Date(h.resolvedAt)) : ""]));
-  const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+function downloadFile(name, text, type) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `alerts-${WORKER}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const toCsv = (rows) => rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+const today = () => new Date().toISOString().slice(0, 10);
+
+$("exportCsv").addEventListener("click", () => {
+  const lines = [["Date", "Time", "User", "Type", "Location", "Resolved", "Resolved at"]].concat(
+    alertLog.map((h) => [day(h.time), clock(new Date(h.time)), h.wid ?? "W01", h.type === "sos" ? "SOS" : "Fall", placeOf(h),
+      h.resolved ? "Yes" : "No", h.resolvedAt ? clock(new Date(h.resolvedAt)) : ""]));
+  downloadFile(`alerts-${today()}.csv`, toCsv(lines), "text/csv");
 });
 
 // =====================================================================
@@ -640,7 +645,7 @@ document.querySelectorAll(".js-help").forEach((b) => b.addEventListener("click",
 // =====================================================================
 // 8) Pages + sidebar (hash links: #overview, #vitals, #location, ...)
 // =====================================================================
-const PAGES = ["overview", "vitals", "location", "charts", "alerts", "device"];
+const PAGES = ["overview", "vitals", "wearables", "location", "charts", "alerts", "device"];
 let currentPage = "overview";
 
 function showPage() {
@@ -705,7 +710,261 @@ $("clearChart").addEventListener("click", () => {
 });
 
 // =====================================================================
-// 9) Main loop – poll Blynk every 2 s
+// 9) Wearables – the whole fleet. Each wearable has an ID and the person
+//    wearing it. There is one physical prototype for now: it "acts as" the
+//    chosen wearable, and its live readings are saved to that wearable.
+// =====================================================================
+const MAX_READINGS = 3000;   // per wearable: ~100 min at one reading every 2 s
+const LIVE_MS = 10000;       // a wearable counts as live while its last reading is this recent
+let wearables = load("wearables", [{ id: "W01", name: "", age: null }]);   // [{ id, name, age }]
+let readings = load("readings", {});                                        // { W01: [{ t, hr, spo2, temp }] }
+let active = load("active", wearables[0].id);                              // the wearable the prototype is acting as
+let detailId = active;
+let protoBeat;   // heartbeat of the last reading saved, so one reading is never counted twice
+let protoNow = { hr: null, spo2: null, online: false };
+
+const wearableById = (id) => wearables.find((w) => w.id === id);
+const wearerName = (w) => (w && w.name ? w.name : "Unassigned");
+const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+const levelClass = (key, v) => `c-${RULES[key].level(v)}`;
+const lastOf = (id) => { const r = readings[id]; return r && r.length ? r[r.length - 1] : null; };
+const isLive = (id) => { const l = lastOf(id); return id === active && protoNow.online && !!l && Date.now() - l.t < LIVE_MS; };
+const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
+  ? clock(new Date(t)).slice(0, 5) : `${day(t)}, ${clock(new Date(t)).slice(0, 5)}`);
+
+// The rest of the dashboard (header, sidebar, alerts) follows the wearable the prototype is acting as
+function setWearerLabels() {
+  const w = wearableById(active);
+  WORKER = active;
+  document.querySelectorAll(".js-wid").forEach((el) => { el.textContent = active; });
+  document.querySelectorAll(".js-wearer").forEach((el) => { el.textContent = w && w.name ? `${w.name} · ${active}` : `User ${active}`; });
+}
+
+function recordReading(d, online) {
+  const hr = num(d[PIN.hr]), spo2 = num(d[PIN.spo2]), temp = num(d[PIN.temp]), beat = d[PIN.beat];
+  const fresh = beat === undefined || beat !== protoBeat;
+  protoBeat = beat;
+  protoNow = { hr: online ? hr : null, spo2: online ? spo2 : null, online };
+  if (online && fresh && hr > 0 && spo2 > 0) {
+    const list = (readings[active] ||= []);
+    list.push({ t: Date.now(), hr, spo2, temp: temp || null });
+    if (list.length > MAX_READINGS) list.splice(0, list.length - MAX_READINGS);
+    save("readings", readings);
+  }
+  renderWearables();
+}
+
+function renderProto() {
+  const { hr, spo2, online } = protoNow, w = wearableById(active), last = lastOf(active);
+  const finger = hr > 0 && spo2 > 0;
+  const state = !online ? "offline" : finger ? "live" : "nofinger";
+  $("protoCard").className = `span-8 glass card proto-card ${state}`;
+  $("protoPill").textContent = { offline: "Offline", live: "Live – recording", nofinger: "Connected – no finger" }[state];
+  $("protoHr").textContent = finger ? hr : "--";
+  $("protoSpo2").textContent = finger ? spo2 : "--";
+  $("protoCount").textContent = (readings[active] || []).length;
+  $("protoLast").textContent = last ? clock(new Date(last.t)).slice(0, 5) : "--";
+  $("protoLastDay").textContent = last ? day(last.t) : " ";
+  $("protoHint").textContent = !online
+    ? "The prototype is offline. Plug it in and it will carry on recording for the wearable chosen above."
+    : !finger ? `Ask ${w && w.name ? w.name : "the wearer"} to rest a fingertip gently and still on the sensor. Readings start after 5–10 s.`
+    : `Saving ${wearerName(w)}'s readings to ${active}. To measure someone else, choose their wearable above.`;
+}
+
+function renderWearables() {
+  // dropdowns
+  const opts = wearables.map((w) => `<option value="${esc(w.id)}">${esc(w.id)} · ${esc(wearerName(w))}</option>`).join("");
+  if ($("protoAs").dataset.opts !== opts) {
+    $("protoAs").innerHTML = opts; $("wdPick").innerHTML = opts; $("protoAs").dataset.opts = opts;
+  }
+  $("protoAs").value = active;
+  if (!wearableById(detailId)) detailId = active;
+  $("wdPick").value = detailId;
+
+  // counters
+  let live = 0, ok = 0, check = 0;
+  wearables.forEach((w) => {
+    const l = lastOf(w.id);
+    if (isLive(w.id)) live++;
+    if (l) { if (RULES.hr.level(l.hr) === "ok" && RULES.spo2.level(l.spo2) === "ok") ok++; else check++; }
+  });
+  $("wbTotal").textContent = wearables.length;
+  $("wbLive").textContent = live;
+  $("wbOk").textContent = ok;
+  $("wbCheck").textContent = check;
+  $("navLive").textContent = live;
+  $("navLive").hidden = live === 0;
+
+  // one card per wearable
+  const cards = wearables.map((w) => {
+    const l = lastOf(w.id), live = isLive(w.id), acting = w.id === active;
+    const status = live ? "Live" : l ? `Last seen ${when(l.t)}` : "No data yet";
+    return `<article class="glass person${live ? " wearing" : ""}${w.id === detailId ? " picked" : ""}" data-pick="${esc(w.id)}" tabindex="0">
+      <div class="person-head">
+        <span class="person-avatar">${esc(w.id)}</span>
+        <div><strong>${esc(wearerName(w))}</strong><span>${w.age ? `Age ${w.age} · ` : ""}${acting ? "Prototype attached" : `${(readings[w.id] || []).length} readings`}</span></div>
+        <button class="x" data-del="${esc(w.id)}" aria-label="Remove ${esc(w.id)}" title="Remove"><i data-lucide="trash-2"></i></button>
+      </div>
+      <div class="person-vitals">
+        <div><span>Heart rate</span><strong class="${l ? levelClass("hr", l.hr) : ""}">${l ? l.hr : "--"}</strong><small>bpm</small></div>
+        <div><span>SpO₂</span><strong class="${l ? levelClass("spo2", l.spo2) : ""}">${l ? l.spo2 : "--"}</strong><small>%</small></div>
+      </div>
+      <div class="person-foot"><span class="w-status ${live ? "live" : l ? "seen" : ""}"><i></i>${status}</span>
+        ${acting ? "" : `<button class="link" data-act="${esc(w.id)}">Attach prototype</button>`}</div>
+    </article>`;
+  }).join("");
+  if ($("wearGrid").dataset.html !== cards) {   // rebuild only when something changed (keeps focus and icons steady)
+    $("wearGrid").dataset.html = cards;
+    $("wearGrid").innerHTML = cards;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  renderProto();
+  if (currentPage === "wearables") drawWearChart();
+}
+
+// ---------- readings chart for one wearable ----------
+const wdChart = window.Chart ? new Chart($("wdChart"), {
+  type: "line",
+  plugins: [lastValueTags],
+  data: { datasets: [
+    { label: "Heart rate (bpm)", yAxisID: "yHr", borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,.08)", fill: true, decimals: 0, data: [] },
+    { label: "SpO₂ (%)", yAxisID: "ySpo2", borderColor: "#08a9ff", backgroundColor: "transparent", decimals: 0, data: [] },
+  ]},
+  options: {
+    animation: false, maintainAspectRatio: false, parsing: false, spanGaps: false,
+    layout: { padding: { right: 44 } },
+    elements: { point: { radius: 0, hoverRadius: 4 }, line: { tension: 0.3, borderWidth: 2 } },
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { type: "linear", ticks: { color: "#8d97a8", maxTicksLimit: 7,
+            callback: (v) => new Date(v).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) },
+           grid: { color: "rgba(255,255,255,.06)" } },
+      yHr:   { position: "left",  min: 40, max: 160, ticks: { color: "#8d97a8", stepSize: 20 }, grid: { color: "rgba(255,255,255,.06)" } },
+      ySpo2: { position: "right", min: 80, max: 100, ticks: { color: "#8d97a8" }, grid: { display: false } },
+    },
+  },
+}) : null;
+
+function drawWearChart() {
+  const w = wearableById(detailId), list = readings[detailId] || [];
+  $("wdTitle").textContent = `${detailId} · ${wearerName(w)}`;
+  $("wdEmpty").hidden = list.length > 0;
+  // a gap of more than a minute (prototype moved to another wearable) breaks the line
+  const hr = [], spo2 = [];
+  list.forEach((r, i) => {
+    if (i && r.t - list[i - 1].t > 60e3) { hr.push({ x: r.t - 1, y: null }); spo2.push({ x: r.t - 1, y: null }); }
+    hr.push({ x: r.t, y: r.hr }); spo2.push({ x: r.t, y: r.spo2 });
+  });
+  if (wdChart) {
+    wdChart.data.datasets[0].data = hr;
+    wdChart.data.datasets[1].data = spo2;
+    wdChart.options.scales.x.min = list.length ? list[0].t : undefined;
+    wdChart.options.scales.x.max = list.length ? list[list.length - 1].t : undefined;
+    wdChart.update("none");
+  }
+  const h = list.map((r) => r.hr), s = list.map((r) => r.spo2);
+  const cell = (k, text) => `<div><span>${k}</span><strong>${list.length ? text : "--"}</strong></div>`;
+  $("wdStats").innerHTML = cell("Heart rate avg", `${Math.round(avg(h))} bpm`)
+    + cell("Heart rate range", `${Math.min(...h)} – ${Math.max(...h)} bpm`)
+    + cell("SpO₂ avg", `${Math.round(avg(s))} %`) + cell("Readings", list.length);
+}
+
+// ---------- actions ----------
+function attach(id) {
+  if (!wearableById(id) || id === active) return;
+  active = id;
+  protoBeat = undefined;
+  save("active", active);
+  setWearerLabels();
+  renderWearables();
+  showHelpToast(`Prototype is now ${id}`, `Readings are saved for ${wearerName(wearableById(id))} from now on.`);
+}
+$("protoAs").addEventListener("change", () => attach($("protoAs").value));
+$("wdPick").addEventListener("change", () => { detailId = $("wdPick").value; renderWearables(); });
+
+$("wearGrid").addEventListener("click", (e) => {
+  const del = e.target.closest("[data-del]"), act = e.target.closest("[data-act]"), card = e.target.closest("[data-pick]");
+  if (del) return removeWearable(del.dataset.del);
+  if (act) return attach(act.dataset.act);
+  if (card) { detailId = card.dataset.pick; renderWearables(); }
+});
+$("wearGrid").addEventListener("keydown", (e) => {
+  const card = e.target.closest("[data-pick]");
+  if (card && e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); detailId = card.dataset.pick; renderWearables(); }
+});
+
+function nextId() {
+  const n = wearables.map((w) => parseInt(w.id.replace(/\D/g, ""), 10) || 0);
+  return `W${String(Math.max(0, ...n) + 1).padStart(2, "0")}`;
+}
+$("wbForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = $("wbId").value.trim().toUpperCase(), name = $("wbName").value.trim(), age = parseInt($("wbAge").value, 10);
+  if (!id || !name) return;
+  const existing = wearableById(id);
+  if (existing && existing.name && !confirm(`${id} is already worn by ${existing.name}. Give it to ${name} instead?`)) return;
+  if (existing) Object.assign(existing, { name, age: age > 0 ? age : null });
+  else wearables.push({ id, name, age: age > 0 ? age : null });
+  save("wearables", wearables);
+  $("wbForm").reset();
+  $("wbId").value = nextId();
+  detailId = id;
+  setWearerLabels();
+  renderWearables();
+});
+
+function removeWearable(id) {
+  if (id === active) { alert(`The prototype is attached to ${id}. Attach it to another wearable first.`); return; }
+  const n = (readings[id] || []).length;
+  if (!confirm(`Remove ${id} (${wearerName(wearableById(id))})${n ? ` and its ${n} readings` : ""}?`)) return;
+  wearables = wearables.filter((w) => w.id !== id);
+  delete readings[id];
+  save("wearables", wearables); save("readings", readings);
+  $("wbId").value = nextId();
+  renderWearables();
+}
+
+$("wbExport").addEventListener("click", () => {
+  const lines = [["Wearable", "Worn by", "Age", "Date", "Time", "Heart rate (bpm)", "SpO2 (%)", "Temperature (C)"]];
+  wearables.forEach((w) => (readings[w.id] || []).forEach((r) =>
+    lines.push([w.id, w.name, w.age ?? "", day(r.t), clock(new Date(r.t)), r.hr, r.spo2, r.temp ?? ""])));
+  downloadFile(`wearables-readings-${today()}.csv`, toCsv(lines), "text/csv");
+});
+
+// Backup / restore, to move the fleet's data to another browser or combine two browsers
+$("wbBackup").addEventListener("click", () => {
+  downloadFile(`wearables-backup-${today()}.json`, JSON.stringify({ wearables, readings }), "application/json");
+});
+$("wbRestore").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.wearables) || !data.readings || typeof data.readings !== "object") throw new Error("not a Wearables backup file");
+    let added = 0, merged = 0;
+    data.wearables.forEach((w) => {
+      if (!w || !w.id) return;
+      const mine = wearableById(w.id);
+      if (!mine) { wearables.push({ id: String(w.id), name: String(w.name || ""), age: w.age || null }); added++; }
+      else if (!mine.name && w.name) mine.name = String(w.name);
+      const have = new Set((readings[w.id] || []).map((r) => r.t));
+      const extra = (data.readings[w.id] || []).filter((r) => r && r.t && r.hr > 0 && r.spo2 > 0 && !have.has(r.t));
+      merged += extra.length;
+      readings[w.id] = (readings[w.id] || []).concat(extra).sort((a, b) => a.t - b.t).slice(-MAX_READINGS);
+    });
+    save("wearables", wearables); save("readings", readings);
+    setWearerLabels(); renderWearables();
+    showHelpToast("Backup restored", `Added ${added} wearables and ${merged} readings.`);
+  } catch (err) {
+    showHelpToast("Could not restore that file", err.message, true);
+  }
+});
+
+// =====================================================================
+// 10) Main loop – poll Blynk every 2 s
 // =====================================================================
 const stats = { ok: 0, fail: 0 };
 let lastBeat, beatChangedAt = 0;
@@ -725,6 +984,7 @@ async function poll() {
     // device offline: Blynk's stored values are old, so show only the status message, no readings
     if (!online) data = { [PIN.status]: data[PIN.status] };
     render(data, online);
+    recordReading(raw, online);
     stats.ok++;
     $("devLast").textContent = clock();
   } catch (err) {
@@ -747,6 +1007,9 @@ $("devMode").textContent = DEMO ? "Demo (made-up data)" : "Live – Blynk";
 $("devToken").textContent = DEMO ? "not set" : `••••••${BLYNK_TOKEN.slice(-4)}`;
 renderHistory();
 renderPosLog();
+setWearerLabels();
+$("wbId").value = nextId();
+renderWearables();
 initMaps();
 showPage();
 poll();
