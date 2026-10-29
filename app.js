@@ -311,6 +311,7 @@ function render(d, online = true) {
   $("fallBanner").classList.toggle("active", fall);
   $("fallTitle").textContent = fall ? `Fall detected – ${locText}` : "No fall detected";
   $("fallSub").textContent = fall ? `${WORKER} may be injured. Check immediately.` : "All clear";
+  setSiren(alert);
 
   // Status tiles
   $("tileSos").classList.toggle("on", sos);
@@ -605,6 +606,52 @@ document.querySelectorAll("[data-range]").forEach((btn) => {
     drawChart();
   });
 });
+
+// =====================================================================
+// Control-room alarm: a two-tone siren while an SOS or fall is active.
+// (The wearable stays quiet on SOS and just shows "SOS sent" on its OLED.)
+// Browsers only allow sound after someone clicks the page, so the first click unlocks it.
+// =====================================================================
+let audioCtx = null, sirenTimer = null, soundHintShown = false;
+function unlockSound() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch { /* no Web Audio – the banners still show */ }
+}
+document.addEventListener("pointerdown", unlockSound);
+document.addEventListener("keydown", unlockSound);
+
+function sirenBurst() {
+  if (!audioCtx || audioCtx.state !== "running") return;
+  const t = audioCtx.currentTime;
+  [[880, 0], [660, 0.35]].forEach(([freq, at]) => {
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t + at);
+    gain.gain.exponentialRampToValueAtTime(0.15, t + at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.32);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + at);
+    osc.stop(t + at + 0.34);
+  });
+}
+function setSiren(on) {
+  if (on && !sirenTimer) {
+    unlockSound();
+    if (!audioCtx || audioCtx.state !== "running") {
+      if (!soundHintShown) showHelpToast("Alarm sound is muted by the browser", "Click anywhere on this page to turn the alarm sound on.", true);
+      soundHintShown = true;
+    }
+    sirenBurst();
+    sirenTimer = setInterval(sirenBurst, 1200);
+  } else if (!on && sirenTimer) {
+    clearInterval(sirenTimer);
+    sirenTimer = null;
+    soundHintShown = false;
+  }
+}
 
 // =====================================================================
 // 7) "Help dispatched" button

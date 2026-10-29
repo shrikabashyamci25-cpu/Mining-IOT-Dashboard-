@@ -72,6 +72,8 @@ bool maxOk = false, mpuOk = false, dhtOk = false, oledOk = false;
 int heartRate = 0, spo2 = 0;
 float temperature = 0, humidity = 0;
 bool sosActive = false, fallActive = false;
+unsigned long chirpUntil = 0;   // short confirmation beep is playing until then
+unsigned long helpUntil = 0;    // OLED shows "help is on the way" until then
 String lastStatus;
 
 // =====================================================================
@@ -183,16 +185,20 @@ void readClimate() {
 void readButton() {
   // A press while all is clear raises SOS. A NEW press held 3 s while an alarm is on cancels it,
   // so holding the button in a panic never cancels the SOS it just sent.
-  static bool wasDown = false, alarmAtPress = false, done = false;
+  // wasDown starts true so a button that is already down at start-up (or wired so it never opens)
+  // has to be released first instead of raising an SOS by itself
+  static bool wasDown = true, alarmAtPress = false, done = false;
   static unsigned long downAt = 0;
   bool down = digitalRead(SOS_PIN) == LOW;
   if (down && !wasDown) { downAt = millis(); alarmAtPress = sosActive || fallActive; done = false; }
   if (down && !done) {
     if (!alarmAtPress && millis() - downAt > 50) {   // 50 ms debounce
       sosActive = true;
+      helpUntil = 0;
       done = true;
       Serial.println("SOS PRESSED");
       sendNow();
+      drawOled();    // show "SOS sent" straight away
     } else if (alarmAtPress && millis() - downAt > CANCEL_HOLD_MS) {
       clearAlerts("cancelled on the wearable");
       done = true;
@@ -201,25 +207,33 @@ void readButton() {
   wasDown = down;
 }
 
+void chirp(unsigned long ms) { chirpUntil = millis() + ms; }
+
+// SOS or fall: beep 0.3 s every second until help is dispatched or the wearer cancels,
+// while the OLED shows the alert reached the control room
 void driveBuzzer() {
-  if (sosActive || fallActive) {
-    bool on = (millis() % 1000) < 300;   // beep 0.3 s every second
-    if (on) tone(BUZZER_PIN, 2000); else noTone(BUZZER_PIN);
-  } else {
-    noTone(BUZZER_PIN);
-  }
+  static bool on = false;
+  bool want = millis() < chirpUntil || ((sosActive || fallActive) && (millis() % 1000) < 300);
+  if (want == on) return;   // only switch on changes, so a chirp is not cut short
+  on = want;
+  if (on) tone(BUZZER_PIN, 2500); else noTone(BUZZER_PIN);
 }
 
 void clearAlerts(const char *why) {
   sosActive = fallActive = false;
-  noTone(BUZZER_PIN);
   Serial.printf("Alerts cleared (%s)\n", why);
-  tone(BUZZER_PIN, 3000, 150);   // short confirmation chirp
+  chirp(150);   // short confirmation chirp
   sendNow();
+  drawOled();
 }
 
 // Dashboard pressed "Dispatch help": V10 = 1 (it also writes V5/V6 = 0)
-BLYNK_WRITE(V10) { if (param.asInt() == 1) clearAlerts("help dispatched"); }
+BLYNK_WRITE(V10) {
+  if (param.asInt() != 1) return;
+  clearAlerts("help dispatched");
+  helpUntil = millis() + 60000;   // tell the wearer help is coming, for a minute
+  drawOled();
+}
 
 // =====================================================================
 // GPS
@@ -262,16 +276,24 @@ void drawOled() {
   oled.print(link);
   oled.drawFastHLine(0, 10, 128, SSD1306_WHITE);
 
-  if (sosActive || fallActive) {   // alert screen: big inverted text
-    oled.fillRect(0, 14, 128, 50, SSD1306_WHITE);
+  // Alert screens (big inverted text) so the wearer knows their alert reached the control room
+  bool helpComing = millis() < helpUntil;
+  if (sosActive || fallActive || helpComing) {
+    oled.fillRect(0, 12, 128, 52, SSD1306_WHITE);
     oled.setTextColor(SSD1306_BLACK);
+    const char *title, *line1, *line2;
+    if (helpComing) { title = "HELP SENT"; line1 = "Help is on the way."; line2 = "Stay where you are."; }
+    else if (!Blynk.connected()) { title = sosActive ? "SOS" : "FALL"; line1 = "Sending... no signal"; line2 = "Keeps trying"; }
+    else if (sosActive) { title = "SOS SENT"; line1 = "Control room alerted"; line2 = "Stay calm. Help soon"; }
+    else { title = "FALL"; line1 = "Control room alerted"; line2 = "Hold btn 3s: I'm OK"; }
     oled.setTextSize(2);
-    const char *what = sosActive ? "SOS!" : "FALL!";
-    oled.setCursor((128 - 12 * strlen(what)) / 2, 22);
-    oled.print(what);
+    oled.setCursor((128 - 12 * strlen(title)) / 2, 16);
+    oled.print(title);
     oled.setTextSize(1);
-    oled.setCursor(10, 46);
-    oled.print("Hold btn 3s=cancel");
+    oled.setCursor((128 - 6 * strlen(line1)) / 2, 38);
+    oled.print(line1);
+    oled.setCursor((128 - 6 * strlen(line2)) / 2, 50);
+    oled.print(line2);
     oled.setTextColor(SSD1306_WHITE);
     oled.display();
     return;
@@ -325,9 +347,9 @@ void sendNow() {
 void report() {
   readClimate();
   sendNow();
-  Serial.printf("HR %d  SpO2 %d  IR %lu (%s)  g %.2f  T %.1f  H %.0f  fall %d  sos %d  GPS %s sats %d  sensors %d%d%d%d  oled %d  %s\n",
+  Serial.printf("HR %d  SpO2 %d  IR %lu (%s)  g %.2f  T %.1f  H %.0f  fall %d  sos %d  btn %s  GPS %s sats %d  sensors %d%d%d%d  oled %d  %s\n",
     heartRate, spo2, (unsigned long)lastIr, lastIr >= FINGER_IR ? "finger" : "no finger", lastG,
-    temperature, humidity, fallActive, sosActive,
+    temperature, humidity, fallActive, sosActive, digitalRead(SOS_PIN) == LOW ? "DOWN" : "up",
     gps.location.isValid() ? "fix" : "no-fix", gps.satellites.isValid() ? (int)gps.satellites.value() : 0,
     maxOk, dhtOk, mpuOk, gpsRecent(), oledOk, Blynk.connected() ? "Blynk OK" : "Blynk offline");
 }
@@ -352,7 +374,7 @@ void setup() {
   timer.setInterval(SEND_MS, report);
   timer.setInterval(1000, drawOled);
 
-  tone(BUZZER_PIN, 2000, 200);     // start-up beep
+  chirp(200);                      // start-up beep
   Serial.println("Smart Health Monitor started");
 }
 
